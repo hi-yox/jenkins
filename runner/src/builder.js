@@ -171,7 +171,7 @@ async function processConfig(config, repoDir, buildDir, scriptPath) {
   console.log(`[完成] domain.json 已生成: ${domainJsonPath}`);
 
   // 构建参数
-  const args = ['--config', domainJsonPath];
+  const args = ['--config', domainJsonPath, '--repo-dir', repoDir];
   if (config.branch) {
     // 切换到目标分支
     console.log(`[分支] 切换到分支: ${config.branch}`);
