@@ -83,7 +83,6 @@ let building = false;
 
 async function doConfigPoll() {
   if (building) {
-    console.log('[配置查询] 正在打包中，跳过本次查询');
     return;
   }
 
