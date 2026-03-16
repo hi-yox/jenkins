@@ -36,13 +36,14 @@ if (!REPO_DIR) {
   process.exit(1);
 }
 
-const resolvedBuildDir = BUILD_DIR || REPO_DIR;
-const resolvedScript = SCRIPT_PATH || path.join(resolvedBuildDir, 'auto_build.sh');
+const resolvedRepoDir = path.resolve(REPO_DIR);
+const resolvedBuildDir = path.resolve(BUILD_DIR || REPO_DIR);
+const resolvedScript = path.resolve(SCRIPT_PATH || path.join(resolvedBuildDir, 'auto_build.sh'));
 
 console.log('============================================================');
 console.log('Build Runner 启动');
 console.log(`  后端地址:       ${API_BASE}`);
-console.log(`  仓库目录:       ${REPO_DIR}`);
+console.log(`  仓库目录:       ${resolvedRepoDir}`);
 console.log(`  打包目录:       ${resolvedBuildDir}`);
 console.log(`  打包脚本:       ${resolvedScript}`);
 console.log(`  分支上报间隔:   ${BRANCH_INTERVAL}s`);
@@ -58,7 +59,7 @@ async function doBranchReport() {
   if (branchReporting) return;
   branchReporting = true;
   try {
-    const branches = getRemoteBranches(REPO_DIR);
+    const branches = getRemoteBranches(resolvedRepoDir);
     if (branches.length > 0) {
       const result = await reportBranches(API_BASE, branches);
       console.log(`[分支上报] 已上报 ${result.count} 个分支`);
@@ -97,7 +98,7 @@ async function doConfigPoll() {
     building = true;
 
     try {
-      await processConfig(config, REPO_DIR, resolvedBuildDir, resolvedScript);
+      await processConfig(config, resolvedRepoDir, resolvedBuildDir, resolvedScript);
       console.log('[配置查询] 打包任务完成');
     } catch (err) {
       console.error(`[配置查询] 打包失败: ${err.message}`);
