@@ -131,7 +131,7 @@
       const result = await getConfig();
       if (result.data) {
         queriedConfig = result.data;
-        showMessage('查询成功，配置已返回并清空', 'success');
+        showMessage('查询成功，已返回最老配置，队列未删除', 'success');
       } else {
         showMessage('暂无配置数据', 'info');
       }

@@ -3,12 +3,12 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 
 /**
- * 查询后端配置（查询后后端会清空）
+ * 消费后端最老配置（查询后从队列删除）
  * @param {string} apiBase
  * @returns {Promise<object|null>}
  */
 async function fetchConfig(apiBase) {
-  const res = await fetch(`${apiBase}/api/config`);
+  const res = await fetch(`${apiBase}/api/config/consume`);
   if (!res.ok) {
     throw new Error(`查询配置失败: ${res.status}`);
   }

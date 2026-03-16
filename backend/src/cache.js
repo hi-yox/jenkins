@@ -1,16 +1,20 @@
-// 简单的内存缓存
-let cachedConfig = null;
+// 简单的内存队列，按提交顺序保存配置
+const configQueue = [];
 
-function setConfig(config) {
-  cachedConfig = config;
+function enqueueConfig(config) {
+  configQueue.push(config);
 }
 
-function getConfig() {
-  return cachedConfig;
+function peekConfig() {
+  return configQueue[0] || null;
 }
 
-function clearConfig() {
-  cachedConfig = null;
+function shiftConfig() {
+  return configQueue.shift() || null;
 }
 
-module.exports = { setConfig, getConfig, clearConfig };
+function getConfigCount() {
+  return configQueue.length;
+}
+
+module.exports = { enqueueConfig, peekConfig, shiftConfig, getConfigCount };

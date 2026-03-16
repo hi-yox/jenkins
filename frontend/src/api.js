@@ -25,7 +25,7 @@ export async function uploadFiles(files) {
 }
 
 /**
- * 保存配置到后端缓存
+ * 保存配置到后端队列
  * @param {object} config
  */
 export async function saveConfig(config) {
@@ -44,7 +44,7 @@ export async function saveConfig(config) {
 }
 
 /**
- * 查询配置（查询后后端会清空）
+ * 查询最老配置（只读，不删除）
  */
 export async function getConfig() {
   const res = await fetch(`${API_BASE}/config`);
