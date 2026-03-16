@@ -24,7 +24,7 @@ if (!REPO_DIR) {
   console.error('错误: 请通过 --repo 指定 git 仓库目录');
   console.error('');
   console.error('用法:');
-  console.error('  node src/index.js --repo /path/to/repo [选项]');
+  console.error('  node src/index.js --repo /path/to/repo [选项] --build-dir build_dir');
   console.error('');
   console.error('选项:');
   console.error('  --api <url>              后端地址 (默认: http://130.94.33.164:8081)');
