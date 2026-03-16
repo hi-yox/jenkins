@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const uploadRouter = require('./routes/upload');
 const configRouter = require('./routes/config');
+const branchesRouter = require('./routes/branches');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,7 @@ app.use('/downloads', express.static(uploadsDir));
 // 路由
 app.use('/api/upload', uploadRouter);
 app.use('/api/config', configRouter);
+app.use('/api/branches', branchesRouter);
 
 app.listen(PORT, () => {
   console.log(`Build Config Server running on http://localhost:${PORT}`);

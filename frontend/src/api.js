@@ -55,3 +55,16 @@ export async function getConfig() {
 
   return res.json();
 }
+
+/**
+ * 获取可用分支列表
+ */
+export async function getBranches() {
+  const res = await fetch(`${API_BASE}/branches`);
+
+  if (!res.ok) {
+    throw new Error('获取分支失败');
+  }
+
+  return res.json();
+}

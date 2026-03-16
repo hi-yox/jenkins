@@ -1,0 +1,11 @@
+{
+  "name": "build-runner",
+  "version": "1.0.0",
+  "description": "定时拉取分支上报 + 定时查询配置并触发打包",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {}
+}

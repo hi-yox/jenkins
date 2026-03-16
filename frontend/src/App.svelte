@@ -1,23 +1,38 @@
 <script>
-  import { uploadFiles, saveConfig, getConfig } from './api.js';
+  import { uploadFiles, saveConfig, getConfig, getBranches } from './api.js';
 
   let appName = $state('');
   let opKey = $state('');
   let requestHttp = $state('');
   let version = $state('');
+  let branch = $state('');
+  let branches = $state([]);
   let domains = $state([{ ip: '', port: 443 }]);
+
+  // 加载分支列表
+  async function loadBranches() {
+    try {
+      const result = await getBranches();
+      branches = result.branches || [];
+      if (branches.length > 0 && !branch) {
+        branch = branches[0];
+      }
+    } catch (_) {
+      // 忽略错误，分支列表可能尚未上报
+    }
+  }
+
+  $effect(() => { loadBranches(); });
 
   // 文件
   let iconFile = $state(null);
   let launchScreenFile = $state(null);
   let certFile = $state(null);
-  let releaseConfigFile = $state(null);
 
   // 上传结果
   let iconUrl = $state('');
   let launchScreenUrl = $state('');
   let certUrl = $state('');
-  let releaseConfigUrl = $state('');
 
   // 状态
   let submitting = $state(false);
@@ -74,10 +89,6 @@
         filesToUpload.push(certFile);
         fileLabels.push('cert');
       }
-      if (releaseConfigFile) {
-        filesToUpload.push(releaseConfigFile);
-        fileLabels.push('release-configuration');
-      }
 
       let uploadedFiles = {};
       if (filesToUpload.length > 0) {
@@ -89,7 +100,6 @@
         if (uploadedFiles['icon']) iconUrl = uploadedFiles['icon'];
         if (uploadedFiles['LaunchScreen']) launchScreenUrl = uploadedFiles['LaunchScreen'];
         if (uploadedFiles['cert']) certUrl = uploadedFiles['cert'];
-        if (uploadedFiles['release-configuration']) releaseConfigUrl = uploadedFiles['release-configuration'];
       }
 
       // 2. 保存配置
@@ -98,11 +108,11 @@
         opKey: opKey.trim(),
         requestHttp: requestHttp.trim(),
         version: version.trim(),
+        branch: branch.trim(),
         domain: domains.filter(d => d.ip.trim()),
         icon: uploadedFiles['icon'] || iconUrl || '',
         LaunchScreen: uploadedFiles['LaunchScreen'] || launchScreenUrl || '',
-        cert: uploadedFiles['cert'] || certUrl || '',
-        'release-configuration': uploadedFiles['release-configuration'] || releaseConfigUrl || ''
+        cert: uploadedFiles['cert'] || certUrl || ''
       };
 
       await saveConfig(config);
@@ -163,6 +173,20 @@
         <label for="version">版本号</label>
         <input id="version" type="text" bind:value={version} placeholder="例如: 1.0.0" />
       </div>
+
+      <div class="field">
+        <label for="branch">分支</label>
+        {#if branches.length > 0}
+          <select id="branch" bind:value={branch}>
+            {#each branches as b}
+              <option value={b}>{b}</option>
+            {/each}
+          </select>
+        {:else}
+          <input id="branch" type="text" bind:value={branch} placeholder="输入分支名，或等待客户端上报分支列表" />
+        {/if}
+        <button type="button" class="btn-secondary" style="margin-top:0.3rem" onclick={loadBranches}>刷新分支</button>
+      </div>
     </section>
 
     <section>
@@ -219,13 +243,7 @@
         {/if}
       </div>
 
-      <div class="field">
-        <label for="releaseConfigFile">发布配置文件 (JSON)</label>
-        <input id="releaseConfigFile" type="file" accept=".json" onchange={(e) => releaseConfigFile = e.target.files[0] || null} />
-        {#if releaseConfigUrl}
-          <span class="file-link">已上传: <a href={releaseConfigUrl} target="_blank" rel="noreferrer">{releaseConfigUrl}</a></span>
-        {/if}
-      </div>
+
     </section>
 
     <div class="actions">
@@ -297,7 +315,8 @@
   }
 
   input[type="text"],
-  input[type="number"] {
+  input[type="number"],
+  select {
     width: 100%;
     padding: 0.6rem 0.8rem;
     border: 1px solid #d1d5db;
@@ -308,7 +327,8 @@
   }
 
   input[type="text"]:focus,
-  input[type="number"]:focus {
+  input[type="number"]:focus,
+  select:focus {
     outline: none;
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
