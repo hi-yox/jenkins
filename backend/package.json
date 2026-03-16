@@ -1,0 +1,16 @@
+{
+  "name": "build-config-server",
+  "version": "1.0.0",
+  "description": "后端服务：接收前端上传的打包配置参数和文件",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "cors": "^2.8.5",
+    "uuid": "^10.0.0"
+  }
+}
