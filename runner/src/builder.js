@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { once } = require('events');
 const { execSync, spawn } = require('child_process');
 
 /**
@@ -20,14 +21,80 @@ async function fetchConfig(apiBase) {
  * 下载文件到指定路径
  * @param {string} url
  * @param {string} destPath
+ * @param {string} label
  */
-async function downloadFile(url, destPath) {
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+async function downloadFile(url, destPath, label = '文件') {
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`下载失败 (${res.status}): ${url}`);
   }
-  const buffer = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(destPath, buffer);
+
+  if (!res.body) {
+    throw new Error(`下载失败: 响应体为空: ${url}`);
+  }
+
+  const totalBytes = Number(res.headers.get('content-length')) || 0;
+  const writer = fs.createWriteStream(destPath);
+  const reader = res.body.getReader();
+
+  let downloadedBytes = 0;
+  let lastPercent = -1;
+  let lastLoggedBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      downloadedBytes += value.length;
+      if (!writer.write(Buffer.from(value))) {
+        await once(writer, 'drain');
+      }
+
+      if (totalBytes > 0) {
+        const percent = Math.floor((downloadedBytes / totalBytes) * 100);
+        if (percent >= lastPercent + 10 || percent === 100) {
+          lastPercent = percent;
+          console.log(`[下载进度] ${label}: ${percent}% (${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)})`);
+        }
+      } else if (downloadedBytes - lastLoggedBytes >= 1024 * 1024) {
+        lastLoggedBytes = downloadedBytes;
+        console.log(`[下载进度] ${label}: 已下载 ${formatBytes(downloadedBytes)}`);
+      }
+    }
+
+    writer.end();
+    await once(writer, 'finish');
+
+    if (totalBytes > 0 && lastPercent < 100) {
+      console.log(`[下载进度] ${label}: 100% (${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)})`);
+    } else if (totalBytes === 0) {
+      console.log(`[下载进度] ${label}: 下载完成，共 ${formatBytes(downloadedBytes)}`);
+    }
+  } catch (error) {
+    writer.destroy();
+    throw error;
+  }
 }
 
 /**
@@ -65,7 +132,7 @@ async function processConfig(config, buildDir, scriptPath) {
   if (config.icon) {
     const iconZip = path.join(assetsDir, `icon${getExtFromUrl(config.icon)}`);
     console.log(`[下载] 图标: ${config.icon}`);
-    await downloadFile(config.icon, iconZip);
+    await downloadFile(config.icon, iconZip, '图标');
 
     const iconDir = path.join(assetsDir, 'icon');
     if (fs.existsSync(iconDir)) {
@@ -82,7 +149,7 @@ async function processConfig(config, buildDir, scriptPath) {
     const ext = getExtFromUrl(config.LaunchScreen) || '.jpg';
     const launchFile = path.join(assetsDir, `LaunchScreen${ext}`);
     console.log(`[下载] 启动图: ${config.LaunchScreen}`);
-    await downloadFile(config.LaunchScreen, launchFile);
+    await downloadFile(config.LaunchScreen, launchFile, '启动图');
     domainConfig.LaunchScreen = path.relative(buildDir, launchFile);
     console.log(`[完成] 启动图: ${launchFile}`);
   }
@@ -92,7 +159,7 @@ async function processConfig(config, buildDir, scriptPath) {
     const ext = getExtFromUrl(config.cert) || '.mobileprovision';
     const certFile = path.join(assetsDir, `cert${ext}`);
     console.log(`[下载] 证书: ${config.cert}`);
-    await downloadFile(config.cert, certFile);
+    await downloadFile(config.cert, certFile, '证书');
     domainConfig.cert = path.relative(buildDir, certFile);
     console.log(`[完成] 证书: ${certFile}`);
   }
