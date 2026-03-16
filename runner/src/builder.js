@@ -110,10 +110,11 @@ function getExtFromUrl(url) {
 /**
  * 处理配置：下载文件 + 生成 domain.json + 执行打包
  * @param {object} config 从后端获取的配置
+ * @param {string} repoDir git 仓库目录
  * @param {string} buildDir 打包工作目录（即 auto_build.sh 所在目录）
  * @param {string} scriptPath auto_build.sh 路径
  */
-async function processConfig(config, buildDir, scriptPath) {
+async function processConfig(config, repoDir, buildDir, scriptPath) {
   // 创建临时资源目录
   const assetsDir = path.join(buildDir, 'build-assets');
   if (!fs.existsSync(assetsDir)) {
@@ -175,9 +176,9 @@ async function processConfig(config, buildDir, scriptPath) {
     // 切换到目标分支
     console.log(`[分支] 切换到分支: ${config.branch}`);
     try {
-      execSync(`git fetch --all`, { cwd: buildDir, stdio: 'inherit' });
-      execSync(`git checkout ${config.branch}`, { cwd: buildDir, stdio: 'inherit' });
-      execSync(`git pull origin ${config.branch}`, { cwd: buildDir, stdio: 'inherit' });
+      execSync('git fetch --all --prune', { cwd: repoDir, stdio: 'inherit' });
+      execSync(`git checkout -B ${config.branch} origin/${config.branch}`, { cwd: repoDir, stdio: 'inherit' });
+      execSync(`git pull origin ${config.branch}`, { cwd: repoDir, stdio: 'inherit' });
     } catch (err) {
       console.error(`[错误] 切换分支失败: ${err.message}`);
       throw err;
