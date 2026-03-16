@@ -1,5 +1,22 @@
 <script>
-  import { uploadFiles, saveConfig, getConfig, getBranches } from './api.js';
+  import { uploadFile, saveConfig, getConfig, getBranches } from './api.js';
+
+  const uploadFields = [
+    { key: 'icon', inputId: 'iconFile', label: '图标 ZIP 文件', accept: '.zip' },
+    { key: 'LaunchScreen', inputId: 'launchScreenFile', label: '启动图文件', accept: '.jpg,.jpeg,.png' },
+    { key: 'cert', inputId: 'certFile', label: '证书文件', accept: '.mobileprovision,.p12,.cer,.pem' }
+  ];
+
+  function createUploadState() {
+    return {
+      fileName: '',
+      progress: 0,
+      status: 'idle',
+      url: '',
+      error: '',
+      requestId: 0
+    };
+  }
 
   let appName = $state('');
   let opKey = $state('');
@@ -8,8 +25,23 @@
   let branch = $state('');
   let branches = $state([]);
   let domains = $state([{ ip: '', port: 443 }]);
+  let uploadStates = $state({
+    icon: createUploadState(),
+    LaunchScreen: createUploadState(),
+    cert: createUploadState()
+  });
+  let uploadInputKeys = $state({
+    icon: 0,
+    LaunchScreen: 0,
+    cert: 0
+  });
 
-  // 加载分支列表
+  let submitting = $state(false);
+  let message = $state('');
+  let messageType = $state('');
+  let queriedConfig = $state(null);
+  let querying = $state(false);
+
   async function loadBranches() {
     try {
       const result = await getBranches();
@@ -23,23 +55,6 @@
   }
 
   $effect(() => { loadBranches(); });
-
-  // 文件
-  let iconFile = $state(null);
-  let launchScreenFile = $state(null);
-  let certFile = $state(null);
-
-  // 上传结果
-  let iconUrl = $state('');
-  let launchScreenUrl = $state('');
-  let certUrl = $state('');
-
-  // 状态
-  let submitting = $state(false);
-  let message = $state('');
-  let messageType = $state('');
-  let queriedConfig = $state(null);
-  let querying = $state(false);
 
   function addDomain() {
     domains = [...domains, { ip: '', port: 443 }];
@@ -60,7 +75,92 @@
   function showMessage(text, type = 'info') {
     message = text;
     messageType = type;
-    setTimeout(() => { message = ''; }, 5000);
+    setTimeout(() => {
+      if (message === text) {
+        message = '';
+      }
+    }, 5000);
+  }
+
+  function clearUpload(fieldKey) {
+    uploadStates[fieldKey] = createUploadState();
+    uploadInputKeys[fieldKey] += 1;
+  }
+
+  async function handleFileChange(fieldKey, fieldLabel, event) {
+    const file = event.target.files?.[0] || null;
+
+    if (!file) {
+      clearUpload(fieldKey);
+      return;
+    }
+
+    const requestId = uploadStates[fieldKey].requestId + 1;
+    uploadStates[fieldKey] = {
+      fileName: file.name,
+      progress: 0,
+      status: 'uploading',
+      url: '',
+      error: '',
+      requestId
+    };
+
+    try {
+      const result = await uploadFile(file, {
+        onProgress: (percent) => {
+          if (uploadStates[fieldKey].requestId !== requestId) {
+            return;
+          }
+
+          uploadStates[fieldKey].progress = percent;
+        }
+      });
+
+      if (uploadStates[fieldKey].requestId !== requestId) {
+        return;
+      }
+
+      uploadStates[fieldKey].progress = 100;
+      uploadStates[fieldKey].status = 'success';
+      uploadStates[fieldKey].url = result.downloadUrl;
+    } catch (err) {
+      if (uploadStates[fieldKey].requestId !== requestId) {
+        return;
+      }
+
+      uploadStates[fieldKey].status = 'error';
+      uploadStates[fieldKey].progress = 0;
+      uploadStates[fieldKey].error = err.message;
+      showMessage(`${fieldLabel}上传失败: ${err.message}`, 'error');
+    }
+  }
+
+  function hasUploadingFiles() {
+    return uploadFields.some(({ key }) => uploadStates[key].status === 'uploading');
+  }
+
+  function hasFailedUploads() {
+    return uploadFields.some(({ key }) => uploadStates[key].status === 'error');
+  }
+
+  function isSubmitDisabled() {
+    return submitting || hasUploadingFiles() || hasFailedUploads();
+  }
+
+  function getSubmitLabel() {
+    if (submitting) {
+      return '提交中...';
+    }
+
+    if (hasUploadingFiles()) {
+      return '文件上传中...';
+    }
+
+    if (hasFailedUploads()) {
+      return '请先处理失败文件';
+    }
+
+    return '提交配置';
   }
 
   async function handleSubmit() {
@@ -69,40 +169,15 @@
       return;
     }
 
+    if (hasUploadingFiles() || hasFailedUploads()) {
+      showMessage('请等待所有文件上传完成后再提交', 'error');
+      return;
+    }
+
     submitting = true;
     message = '';
 
     try {
-      // 1. 上传文件
-      const filesToUpload = [];
-      const fileLabels = [];
-
-      if (iconFile) {
-        filesToUpload.push(iconFile);
-        fileLabels.push('icon');
-      }
-      if (launchScreenFile) {
-        filesToUpload.push(launchScreenFile);
-        fileLabels.push('LaunchScreen');
-      }
-      if (certFile) {
-        filesToUpload.push(certFile);
-        fileLabels.push('cert');
-      }
-
-      let uploadedFiles = {};
-      if (filesToUpload.length > 0) {
-        const result = await uploadFiles(filesToUpload);
-        result.files.forEach((f, i) => {
-          uploadedFiles[fileLabels[i]] = f.downloadUrl;
-        });
-
-        if (uploadedFiles['icon']) iconUrl = uploadedFiles['icon'];
-        if (uploadedFiles['LaunchScreen']) launchScreenUrl = uploadedFiles['LaunchScreen'];
-        if (uploadedFiles['cert']) certUrl = uploadedFiles['cert'];
-      }
-
-      // 2. 保存配置
       const config = {
         appName: appName.trim(),
         opKey: opKey.trim(),
@@ -110,9 +185,9 @@
         version: version.trim(),
         branch: branch.trim(),
         domain: domains.filter(d => d.ip.trim()),
-        icon: uploadedFiles['icon'] || iconUrl || '',
-        LaunchScreen: uploadedFiles['LaunchScreen'] || launchScreenUrl || '',
-        cert: uploadedFiles['cert'] || certUrl || ''
+        icon: uploadStates.icon.url || '',
+        LaunchScreen: uploadStates.LaunchScreen.url || '',
+        cert: uploadStates.cert.url || ''
       };
 
       await saveConfig(config);
@@ -219,36 +294,51 @@
     <section>
       <h2>文件上传</h2>
 
-      <div class="field">
-        <label for="iconFile">图标 ZIP 文件</label>
-        <input id="iconFile" type="file" accept=".zip" onchange={(e) => iconFile = e.target.files[0] || null} />
-        {#if iconUrl}
-          <span class="file-link">已上传: <a href={iconUrl} target="_blank" rel="noreferrer">{iconUrl}</a></span>
-        {/if}
-      </div>
+      {#each uploadFields as field}
+        {@const state = uploadStates[field.key]}
+        <div class="upload-card">
+          <div class="upload-card-header">
+            <label for={field.inputId}>{field.label}</label>
+            {#if state.fileName}
+              <button type="button" class="btn-text" onclick={() => clearUpload(field.key)}>清除</button>
+            {/if}
+          </div>
 
-      <div class="field">
-        <label for="launchScreenFile">启动图文件</label>
-        <input id="launchScreenFile" type="file" accept=".jpg,.jpeg,.png" onchange={(e) => launchScreenFile = e.target.files[0] || null} />
-        {#if launchScreenUrl}
-          <span class="file-link">已上传: <a href={launchScreenUrl} target="_blank" rel="noreferrer">{launchScreenUrl}</a></span>
-        {/if}
-      </div>
+          {#key uploadInputKeys[field.key]}
+            <input
+              id={field.inputId}
+              type="file"
+              accept={field.accept}
+              onchange={(e) => handleFileChange(field.key, field.label, e)}
+              disabled={state.status === 'uploading'}
+            />
+          {/key}
 
-      <div class="field">
-        <label for="certFile">证书文件</label>
-        <input id="certFile" type="file" accept=".mobileprovision,.p12,.cer,.pem" onchange={(e) => certFile = e.target.files[0] || null} />
-        {#if certUrl}
-          <span class="file-link">已上传: <a href={certUrl} target="_blank" rel="noreferrer">{certUrl}</a></span>
-        {/if}
-      </div>
+          {#if state.fileName}
+            <div class="upload-meta">当前文件: {state.fileName}</div>
+          {/if}
 
-
+          {#if state.status === 'uploading'}
+            <div class="progress-row">
+              <div class="progress-track">
+                <div class="progress-fill" style={`width: ${state.progress}%`}></div>
+              </div>
+              <span class="progress-text">{state.progress}%</span>
+            </div>
+            <div class="upload-status uploading">上传中，请稍候...</div>
+          {:else if state.status === 'success'}
+            <div class="upload-status success">上传完成</div>
+            <span class="file-link">上传地址: <a href={state.url} target="_blank" rel="noreferrer">{state.url}</a></span>
+          {:else if state.status === 'error'}
+            <div class="upload-status error">上传失败: {state.error}</div>
+          {/if}
+        </div>
+      {/each}
     </section>
 
     <div class="actions">
-      <button type="submit" class="btn-primary" disabled={submitting}>
-        {submitting ? '提交中...' : '提交配置'}
+      <button type="submit" class="btn-primary" disabled={isSubmitDisabled()}>
+        {getSubmitLabel()}
       </button>
       <button type="button" class="btn-query" onclick={handleQuery} disabled={querying}>
         {querying ? '查询中...' : '查询配置'}
@@ -336,11 +426,12 @@
 
   input[type="file"] {
     font-size: 0.9rem;
+    width: 100%;
   }
 
   .file-link {
     display: block;
-    margin-top: 0.3rem;
+    margin-top: 0.5rem;
     font-size: 0.8rem;
     color: #6b7280;
   }
@@ -402,6 +493,95 @@
 
   .btn-secondary:hover {
     background: #cbd5e1;
+  }
+
+  .upload-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: #f8fafc;
+  }
+
+  .upload-card:last-child {
+    margin-bottom: 0;
+  }
+
+  .upload-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .upload-meta {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #475569;
+    word-break: break-all;
+  }
+
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .progress-track {
+    flex: 1;
+    height: 10px;
+    background: #dbeafe;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2563eb, #0ea5e9);
+    border-radius: 999px;
+    transition: width 0.2s ease;
+  }
+
+  .progress-text {
+    min-width: 44px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1d4ed8;
+    text-align: right;
+  }
+
+  .upload-status {
+    margin-top: 0.55rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .upload-status.uploading {
+    color: #1d4ed8;
+  }
+
+  .upload-status.success {
+    color: #047857;
+  }
+
+  .upload-status.error {
+    color: #b91c1c;
+  }
+
+  .btn-text {
+    border: none;
+    background: transparent;
+    color: #2563eb;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .btn-text:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
   }
 
   .actions {

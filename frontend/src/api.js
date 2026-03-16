@@ -1,27 +1,56 @@
 const API_BASE = '/api';
 
 /**
- * 上传文件到服务器
- * @param {File[]} files
- * @returns {Promise<{files: Array<{originalName: string, savedName: string, size: number, downloadUrl: string}>}>}
+ * 上传单个文件到服务器，并支持上传进度回调
+ * @param {File} file
+ * @param {{ onProgress?: (percent: number) => void }} [options]
+ * @returns {Promise<{originalName: string, savedName: string, size: number, downloadUrl: string}>}
  */
-export async function uploadFiles(files) {
+export function uploadFile(file, options = {}) {
+  const { onProgress } = options;
   const formData = new FormData();
-  for (const file of files) {
-    formData.append('files', file);
-  }
+  formData.append('files', file);
 
-  const res = await fetch(`${API_BASE}/upload`, {
-    method: 'POST',
-    body: formData
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/upload`);
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (!onProgress || !event.lengthComputable) {
+        return;
+      }
+
+      const percent = Math.round((event.loaded / event.total) * 100);
+      onProgress(percent);
+    });
+
+    xhr.addEventListener('load', () => {
+      let payload = null;
+
+      try {
+        payload = JSON.parse(xhr.responseText);
+      } catch (_) {
+        payload = null;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300 && payload?.files?.[0]) {
+        resolve(payload.files[0]);
+        return;
+      }
+
+      reject(new Error(payload?.error || '上传失败'));
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('上传失败'));
+    });
+
+    xhr.addEventListener('abort', () => {
+      reject(new Error('上传已取消'));
+    });
+
+    xhr.send(formData);
   });
-
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || '上传失败');
-  }
-
-  return res.json();
 }
 
 /**
