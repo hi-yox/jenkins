@@ -6,8 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3001',
-      '/downloads': 'http://localhost:3001'
+      '/api': 'http://130.94.33.164:8081',
+      '/downloads': 'http://130.94.33.164:8081'
     }
   }
 });

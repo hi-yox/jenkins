@@ -7,7 +7,7 @@ const configRouter = require('./routes/config');
 const branchesRouter = require('./routes/branches');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8081;
 
 // 确保上传目录存在
 const uploadsDir = path.join(__dirname, '..', 'uploads');

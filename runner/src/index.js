@@ -13,7 +13,7 @@ function getArg(name, defaultValue) {
   return args[index + 1];
 }
 
-const API_BASE = getArg('--api', 'http://localhost:3001');
+const API_BASE = getArg('--api', 'http://localhost:8081');
 const REPO_DIR = getArg('--repo', '');               // git 仓库目录（必填）
 const BUILD_DIR = getArg('--build-dir', '');          // 打包工作目录，默认同 repo
 const SCRIPT_PATH = getArg('--script', '');           // auto_build.sh 路径
@@ -27,7 +27,7 @@ if (!REPO_DIR) {
   console.error('  node src/index.js --repo /path/to/repo [选项]');
   console.error('');
   console.error('选项:');
-  console.error('  --api <url>              后端地址 (默认: http://localhost:3001)');
+  console.error('  --api <url>              后端地址 (默认: http://localhost:8081)');
   console.error('  --repo <path>            git 仓库目录 (必填)');
   console.error('  --build-dir <path>       打包工作目录 (默认: 同 --repo)');
   console.error('  --script <path>          auto_build.sh 路径 (默认: <build-dir>/auto_build.sh)');
