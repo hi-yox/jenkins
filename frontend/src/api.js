@@ -112,3 +112,16 @@ export async function getBuildLogs(roomId) {
 
   return res.json();
 }
+
+/**
+ * 获取已完成构建产物列表
+ */
+export async function getBuildArtifacts() {
+  const res = await fetch(`${API_BASE}/build-artifacts`);
+
+  if (!res.ok) {
+    throw new Error('获取打包产物失败');
+  }
+
+  return res.json();
+}

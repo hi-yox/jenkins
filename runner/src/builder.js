@@ -3,6 +3,70 @@ const path = require('path');
 const { once } = require('events');
 const { execSync, spawn } = require('child_process');
 
+function trimTrailingSlash(url) {
+  return String(url || '').replace(/\/+$/, '');
+}
+
+async function uploadBuildPackage(apiBase, ipaPath) {
+  const normalizedApiBase = trimTrailingSlash(apiBase);
+  const uploadUrl = `${normalizedApiBase}/api/upload`;
+
+  const output = await new Promise((resolve, reject) => {
+    const args = ['-sS', '-f', '-X', 'POST', '-F', `files=@${ipaPath}`, uploadUrl];
+    const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`上传 IPA 失败: ${stderr.trim() || `curl 退出码 ${code}`}`));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(output);
+  } catch (_error) {
+    throw new Error('上传 IPA 失败: 服务端响应不是合法 JSON');
+  }
+
+  const file = parsed?.files?.[0];
+  if (!file?.downloadUrl) {
+    throw new Error('上传 IPA 失败: 未返回 downloadUrl');
+  }
+
+  return file;
+}
+
+async function saveBuildArtifact(apiBase, payload) {
+  const normalizedApiBase = trimTrailingSlash(apiBase);
+  const res = await fetch(`${normalizedApiBase}/api/build-artifacts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`保存打包记录失败: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 /**
  * 消费后端最老配置（查询后从队列删除）
  * @param {string} apiBase
@@ -223,6 +287,7 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
   const args = ['--config', 'domain.json'];
   const roomId = String(config.roomId || '').trim();
   const buildLogPath = path.join(assetsDir, `build-${Date.now()}.log`);
+  const buildOutputIpaPath = path.join(repoDir, 'build-output', 'Telegram.ipa');
 
   function appendBuildLog(message) {
     fs.appendFileSync(buildLogPath, `${message}\n`);
@@ -285,6 +350,35 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
 
         child.on('error', reject);
       });
+
+      if (!fs.existsSync(buildOutputIpaPath)) {
+        throw new Error(`构建产物不存在: ${buildOutputIpaPath}`);
+      }
+
+      await logAndUpload(`[构建] 开始上传 IPA: ${buildOutputIpaPath}`);
+      const uploadedFile = await uploadBuildPackage(apiBase, buildOutputIpaPath);
+      await logAndUpload(`[构建] IPA 上传完成: ${uploadedFile.downloadUrl}`);
+
+      const artifactPayload = {
+        roomId,
+        appName: config.appName || '',
+        version: config.version || '',
+        branch: config.branch || '',
+        opKey: config.opKey || '',
+        requestHttp: config.requestHttp || '',
+        domain: config.domain || [],
+        buildArgs: args,
+        packagePath: buildOutputIpaPath,
+        downloadUrl: uploadedFile.downloadUrl,
+        packageSize: uploadedFile.size || 0,
+        originalName: uploadedFile.originalName || 'Telegram.ipa',
+        savedName: uploadedFile.savedName || '',
+        buildLogPath,
+        createdAt: new Date().toISOString()
+      };
+
+      await saveBuildArtifact(apiBase, artifactPayload);
+      await logAndUpload('[构建] 打包结果已保存到服务端');
 
       await uploadBuildLog(apiBase, roomId, '[构建] 打包完成', 'info', true, 'success');
     } catch (error) {

@@ -8,6 +8,7 @@ const uploadRouter = require('./routes/upload');
 const configRouter = require('./routes/config');
 const branchesRouter = require('./routes/branches');
 const buildLogsRouter = require('./routes/build-logs');
+const buildArtifactsRouter = require('./routes/build-artifacts');
 
 const app = express();
 const PORT = process.env.PORT || 8081;
@@ -48,6 +49,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/config', configRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/build-logs', buildLogsRouter);
+app.use('/api/build-artifacts', buildArtifactsRouter);
 
 server.listen(PORT, () => {
   console.log(`Build Config Server running on http://localhost:${PORT}`);

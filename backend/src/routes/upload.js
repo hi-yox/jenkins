@@ -10,10 +10,10 @@ const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
 // 允许的文件类型
 const ALLOWED_EXTENSIONS = new Set([
   '.zip', '.png', '.jpg', '.jpeg',
-  '.mobileprovision', '.json', '.p12', '.cer', '.pem'
+  '.mobileprovision', '.json', '.p12', '.cer', '.pem', '.ipa'
 ]);
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {

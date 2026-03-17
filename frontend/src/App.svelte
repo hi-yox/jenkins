@@ -1,7 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { io } from 'socket.io-client';
-  import { uploadFile, saveConfig, getConfig, getBranches, getBuildLogs, SOCKET_BASE } from './api.js';
+  import { uploadFile, saveConfig, getConfig, getBranches, getBuildLogs, getBuildArtifacts, SOCKET_BASE } from './api.js';
 
   const uploadFields = [
     { key: 'icon', inputId: 'iconFile', label: '图标 ZIP 文件', accept: '.zip' },
@@ -48,6 +48,8 @@
   let querying = $state(false);
   let activeRoomId = $state('');
   let buildLogs = $state([]);
+  let buildArtifacts = $state([]);
+  let loadingArtifacts = $state(false);
 
   let socket = null;
 
@@ -70,6 +72,18 @@
       buildLogs = result.logs || [];
     } catch (_) {
       // 忽略历史日志加载失败，实时日志仍可继续接收
+    }
+  }
+
+  async function loadBuildArtifacts() {
+    loadingArtifacts = true;
+    try {
+      const result = await getBuildArtifacts();
+      buildArtifacts = result.items || [];
+    } catch (_) {
+      // 不阻断页面使用
+    } finally {
+      loadingArtifacts = false;
     }
   }
 
@@ -137,7 +151,10 @@
     }
   }
 
-  $effect(() => { loadBranches(); });
+  $effect(() => {
+    loadBranches();
+    loadBuildArtifacts();
+  });
 
   function addDomain() {
     domains = [...domains, { ip: '', port: 443 }];
@@ -462,6 +479,31 @@
           <div class={`build-log-line ${log.level || 'info'}`}>
             <span class="build-log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
             <span>{log.message}</span>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </section>
+
+  <section>
+    <h2>已完成打包</h2>
+    <button type="button" class="btn-secondary" onclick={loadBuildArtifacts} disabled={loadingArtifacts}>
+      {loadingArtifacts ? '刷新中...' : '刷新列表'}
+    </button>
+
+    <div class="artifact-list">
+      {#if buildArtifacts.length === 0}
+        <div class="artifact-empty">暂无已完成打包记录</div>
+      {:else}
+        {#each buildArtifacts as item}
+          <div class="artifact-card">
+            <div class="artifact-title">{item.appName || '未命名应用'} {item.version ? `v${item.version}` : ''}</div>
+            <div class="artifact-row">分支: {item.branch || '-'}</div>
+            <div class="artifact-row">房间: {item.roomId || '-'}</div>
+            <div class="artifact-row">构建时间: {item.createdAt ? new Date(item.createdAt).toLocaleString() : '-'}</div>
+            <div class="artifact-row">包大小: {item.packageSize || 0} bytes</div>
+            <div class="artifact-row">包路径: {item.packagePath || '-'}</div>
+            <div class="artifact-row">下载地址: <a href={item.downloadUrl} target="_blank" rel="noreferrer">{item.downloadUrl}</a></div>
           </div>
         {/each}
       {/if}
@@ -827,5 +869,42 @@
     color: #93c5fd;
     min-width: 70px;
     flex-shrink: 0;
+  }
+
+  .artifact-list {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .artifact-card {
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
+    padding: 0.9rem;
+    background: #f8fbff;
+  }
+
+  .artifact-title {
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    color: #1e3a8a;
+  }
+
+  .artifact-row {
+    font-size: 0.9rem;
+    color: #334155;
+    margin-bottom: 0.2rem;
+    word-break: break-all;
+  }
+
+  .artifact-row a {
+    color: #2563eb;
+  }
+
+  .artifact-empty {
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-top: 0.8rem;
   }
 </style>
