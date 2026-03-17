@@ -186,24 +186,35 @@ async function processConfig(config, repoDir, buildDir, scriptPath) {
   }
 
   // 执行 auto_build.sh
-  console.log(`[构建] 开始执行: ${scriptPath} ${args.join(' ')}`);
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', [scriptPath, ...args], {
-      cwd: buildDir,
-      stdio: 'inherit'
-    });
+  const tempScriptPath = path.join(repoDir, path.basename(scriptPath));
+  fs.copyFileSync(scriptPath, tempScriptPath);
+  fs.chmodSync(tempScriptPath, 0o755);
 
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log('[构建] 打包完成');
-        resolve();
-      } else {
-        reject(new Error(`打包失败，退出码: ${code}`));
-      }
-    });
+  console.log(`[构建] 开始执行: ${tempScriptPath} ${args.join(' ')}`);
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn('bash', [tempScriptPath, ...args], {
+        cwd: repoDir,
+        stdio: 'inherit'
+      });
 
-    child.on('error', reject);
-  });
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log('[构建] 打包完成');
+          resolve();
+        } else {
+          reject(new Error(`打包失败，退出码: ${code}`));
+        }
+      });
+
+      child.on('error', reject);
+    });
+  } finally {
+    if (fs.existsSync(tempScriptPath)) {
+      fs.unlinkSync(tempScriptPath);
+      console.log(`[清理] 已删除临时脚本: ${tempScriptPath}`);
+    }
+  }
 }
 
 module.exports = { fetchConfig, processConfig };
