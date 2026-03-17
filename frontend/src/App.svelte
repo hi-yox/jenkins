@@ -52,6 +52,7 @@
   let loadingArtifacts = $state(false);
 
   let socket = null;
+  const LOG_RETRY_MAX_ATTEMPTS = 8;
 
   function pushBuildLog(entry) {
     buildLogs = [...buildLogs, entry].slice(-1000);
@@ -98,7 +99,12 @@
     }
 
     socket = io(SOCKET_BASE, {
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: LOG_RETRY_MAX_ATTEMPTS,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 8000,
+      timeout: 10000
     });
 
     socket.on('connect', () => {
@@ -107,6 +113,43 @@
         roomId,
         message: '[系统] 已连接日志通道',
         level: 'info',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      pushBuildLog({
+        roomId,
+        message: `[系统] 日志通道重连中 (${attempt}/${LOG_RETRY_MAX_ATTEMPTS})`,
+        level: 'warning',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      pushBuildLog({
+        roomId,
+        message: '[系统] 日志通道重连失败，已达到最大重试次数，请稍后重新提交或刷新页面',
+        level: 'error',
+        timestamp: new Date().toISOString(),
+        done: true,
+        status: 'failed'
+      });
+    });
+
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io client disconnect') {
+        return;
+      }
+
+      pushBuildLog({
+        roomId,
+        message: `[系统] 日志连接已断开: ${reason}`,
+        level: 'warning',
         timestamp: new Date().toISOString(),
         done: false,
         status: ''
@@ -122,9 +165,12 @@
     });
 
     socket.on('connect_error', (error) => {
+      const retrying = socket?.active;
       pushBuildLog({
         roomId,
-        message: `[系统] 日志连接失败: ${error.message}`,
+        message: retrying
+          ? `[系统] 日志连接失败: ${error.message}，将自动重试`
+          : `[系统] 日志连接失败: ${error.message}`,
         level: 'error',
         timestamp: new Date().toISOString(),
         done: false,
@@ -276,7 +322,7 @@
 
     submitting = true;
     message = '';
-    const roomId = "88991234"
+    const roomId = Date.now().toString();
 
     resetBuildLogs(roomId);
     connectLogRoom(roomId);
@@ -863,6 +909,10 @@
 
   .build-log-line.error {
     color: #fca5a5;
+  }
+
+  .build-log-line.warning {
+    color: #fcd34d;
   }
 
   .build-log-time {

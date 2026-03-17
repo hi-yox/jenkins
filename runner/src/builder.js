@@ -7,6 +7,10 @@ function trimTrailingSlash(url) {
   return String(url || '').replace(/\/+$/, '');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function uploadBuildPackage(apiBase, ipaPath) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
   const uploadUrl = `${normalizedApiBase}/api/upload`;
@@ -49,6 +53,27 @@ async function uploadBuildPackage(apiBase, ipaPath) {
   }
 
   return file;
+}
+
+async function uploadBuildPackageWithRetry(apiBase, ipaPath, options = {}) {
+  const retryDelayMs = Number(options.retryDelayMs) > 0 ? Number(options.retryDelayMs) : 5000;
+  const onRetryLog = typeof options.onRetryLog === 'function' ? options.onRetryLog : null;
+
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      return await uploadBuildPackage(apiBase, ipaPath);
+    } catch (error) {
+      const message = `[构建] IPA 上传失败（第 ${attempt} 次）: ${error.message}，${Math.floor(retryDelayMs / 1000)} 秒后重试`;
+      if (onRetryLog) {
+        await onRetryLog(message);
+      } else {
+        console.error(message);
+      }
+      await sleep(retryDelayMs);
+    }
+  }
 }
 
 async function saveBuildArtifact(apiBase, payload) {
@@ -356,7 +381,12 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
       }
 
       await logAndUpload(`[构建] 开始上传 IPA: ${buildOutputIpaPath}`);
-      const uploadedFile = await uploadBuildPackage(apiBase, buildOutputIpaPath);
+      const uploadedFile = await uploadBuildPackageWithRetry(apiBase, buildOutputIpaPath, {
+        retryDelayMs: 5000,
+        onRetryLog: async (message) => {
+          await logAndUpload(message, 'error');
+        }
+      });
       await logAndUpload(`[构建] IPA 上传完成: ${uploadedFile.downloadUrl}`);
 
       const artifactPayload = {
