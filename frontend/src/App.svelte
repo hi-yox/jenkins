@@ -256,7 +256,7 @@
 
     submitting = true;
     message = '';
-    const roomId = crypto.randomUUID();
+    const roomId = "88991234"
 
     resetBuildLogs(roomId);
     connectLogRoom(roomId);
