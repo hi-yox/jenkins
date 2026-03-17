@@ -148,12 +148,12 @@ function createStreamLineLogger(stream, onLine) {
  * 处理配置：下载文件 + 生成 domain.json + 执行打包
  * @param {object} config 从后端获取的配置
  * @param {string} repoDir git 仓库目录
- * @param {string} buildDir 打包工作目录（即 auto_build.sh 所在目录）
+ * @param {string} _buildDir 保留参数（兼容旧调用）
  * @param {string} scriptPath auto_build.sh 路径
  */
-async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
+async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
   // 创建临时资源目录
-  const assetsDir = path.join(buildDir, 'build-assets');
+  const assetsDir = path.join(repoDir, 'build-assets');
   if (!fs.existsSync(assetsDir)) {
     fs.mkdirSync(assetsDir, { recursive: true });
   }
@@ -178,7 +178,7 @@ async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
     }
     fs.mkdirSync(iconDir, { recursive: true });
     execSync(`unzip -o "${iconZip}" -d "${iconDir}"`, { stdio: 'ignore' });
-    domainConfig.icon = path.relative(buildDir, iconDir);
+    domainConfig.icon = path.relative(repoDir, iconDir);
     console.log(`[完成] 图标已解压到: ${iconDir}`);
   }
 
@@ -188,7 +188,7 @@ async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
     const launchFile = path.join(assetsDir, `LaunchScreen${ext}`);
     console.log(`[下载] 启动图: ${config.LaunchScreen}`);
     await downloadFile(config.LaunchScreen, launchFile, '启动图');
-    domainConfig.LaunchScreen = path.relative(buildDir, launchFile);
+    domainConfig.LaunchScreen = path.relative(repoDir, launchFile);
     console.log(`[完成] 启动图: ${launchFile}`);
   }
 
@@ -198,17 +198,17 @@ async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
     const certFile = path.join(assetsDir, `cert${ext}`);
     console.log(`[下载] 证书: ${config.cert}`);
     await downloadFile(config.cert, certFile, '证书');
-    domainConfig.cert = path.relative(buildDir, certFile);
+    domainConfig.cert = path.relative(repoDir, certFile);
     console.log(`[完成] 证书: ${certFile}`);
   }
 
   // 写入 domain.json
-  const domainJsonPath = path.join(buildDir, 'domain.json');
+  const domainJsonPath = path.join(repoDir, 'domain.json');
   fs.writeFileSync(domainJsonPath, JSON.stringify(domainConfig, null, 2) + '\n');
   console.log(`[完成] domain.json 已生成: ${domainJsonPath}`);
 
   // 构建参数
-  const args = ['--config', domainJsonPath, '--repo-dir', repoDir];
+  const args = ['--config', 'domain.json'];
   const roomId = String(config.roomId || '').trim();
   const buildLogPath = path.join(assetsDir, `build-${Date.now()}.log`);
 
@@ -240,12 +240,12 @@ async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
   fs.chmodSync(tempScriptPath, 0o755);
 
   await logAndUpload(`[构建] 日志文件: ${buildLogPath}`);
-  console.log(`[构建] 开始执行: ${tempScriptPath} ${args.join(' ')}`);
-  await logAndUpload(`[构建] 开始执行: ${tempScriptPath} ${args.join(' ')}`);
+  console.log(`[构建] 开始执行: (cd ${repoDir} && ./auto_build.sh ${args.join(' ')})`);
+  await logAndUpload(`[构建] 开始执行: (cd ${repoDir} && ./auto_build.sh ${args.join(' ')})`);
   try {
     try {
       await new Promise((resolve, reject) => {
-        const child = spawn('bash', [tempScriptPath, ...args], {
+        const child = spawn('./auto_build.sh', args, {
           cwd: repoDir,
           stdio: ['ignore', 'pipe', 'pipe']
         });
