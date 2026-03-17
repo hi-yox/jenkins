@@ -241,6 +241,18 @@ function createStreamLineLogger(stream, onLine) {
  * @param {string} scriptPath auto_build.sh 路径
  */
 async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
+  const roomId = String(config.roomId || '').trim();
+
+  // 打包前清理已跟踪文件改动，避免脏工作区影响打包。
+  console.log('[构建前清理] 执行 git checkout -- .');
+  try {
+    execSync('git checkout -- .', { cwd: repoDir, stdio: 'inherit' });
+    await uploadBuildLog(apiBase, roomId, '[构建前清理] 已执行 git checkout -- .', 'info');
+  } catch (error) {
+    await uploadBuildLog(apiBase, roomId, `[构建前清理] 失败: ${error.message}`, 'error', true, 'failed');
+    throw new Error(`构建前清理失败: ${error.message}`);
+  }
+
   // 创建临时资源目录
   const assetsDir = path.join(repoDir, 'build-assets');
   if (!fs.existsSync(assetsDir)) {
@@ -310,7 +322,6 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
 
   // 构建参数
   const args = ['--config', 'domain.json'];
-  const roomId = String(config.roomId || '').trim();
   const buildLogPath = path.join(assetsDir, `build-${Date.now()}.log`);
   const buildOutputIpaPath = path.join(repoDir, 'build-output', 'Telegram.ipa');
 
@@ -420,6 +431,16 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
       fs.unlinkSync(tempScriptPath);
       console.log(`[清理] 已删除临时脚本: ${tempScriptPath}`);
       await logAndUpload(`[清理] 已删除临时脚本: ${tempScriptPath}`);
+    }
+
+    // 打包后再次清理已跟踪文件改动，减少后续任务污染。
+    console.log('[构建后清理] 执行 git checkout -- .');
+    try {
+      execSync('git checkout -- .', { cwd: repoDir, stdio: 'inherit' });
+      await logAndUpload('[构建后清理] 已执行 git checkout -- .');
+    } catch (error) {
+      console.error(`[构建后清理] 失败: ${error.message}`);
+      await logAndUpload(`[构建后清理] 失败: ${error.message}`, 'error');
     }
   }
 }
