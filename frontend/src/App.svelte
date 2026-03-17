@@ -6,7 +6,8 @@
   const uploadFields = [
     { key: 'icon', inputId: 'iconFile', label: '图标 ZIP 文件', accept: '.zip' },
     { key: 'LaunchScreen', inputId: 'launchScreenFile', label: '启动图文件', accept: '.jpg,.jpeg,.png' },
-    { key: 'cert', inputId: 'certFile', label: '证书文件', accept: '.mobileprovision,.p12,.cer,.pem' }
+    { key: 'cert', inputId: 'certFile', label: '证书文件', accept: '.mobileprovision,.p12,.cer,.pem' },
+    { key: 'releaseConfiguration', inputId: 'releaseConfigurationFile', label: '发布配置文件 (release-configuration)', accept: '.json' }
   ];
 
   function createUploadState() {
@@ -30,12 +31,14 @@
   let uploadStates = $state({
     icon: createUploadState(),
     LaunchScreen: createUploadState(),
-    cert: createUploadState()
+    cert: createUploadState(),
+    releaseConfiguration: createUploadState()
   });
   let uploadInputKeys = $state({
     icon: 0,
     LaunchScreen: 0,
-    cert: 0
+    cert: 0,
+    releaseConfiguration: 0
   });
 
   let submitting = $state(false);
@@ -273,7 +276,8 @@
         domain: domains.filter(d => d.ip.trim()),
         icon: uploadStates.icon.url || '',
         LaunchScreen: uploadStates.LaunchScreen.url || '',
-        cert: uploadStates.cert.url || ''
+        cert: uploadStates.cert.url || '',
+        'release-configuration': uploadStates.releaseConfiguration.url || ''
       };
 
       await saveConfig(config);

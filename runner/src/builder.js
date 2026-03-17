@@ -163,7 +163,8 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
     opKey: config.opKey || '',
     requestHttp: config.requestHttp || '',
     version: config.version || '',
-    domain: config.domain || []
+    domain: config.domain || [],
+    'release-configuration': ''
   };
 
   // 下载图标 zip 并解压到 build-assets/icon/
@@ -200,6 +201,17 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
     await downloadFile(config.cert, certFile, '证书');
     domainConfig.cert = path.relative(repoDir, certFile);
     console.log(`[完成] 证书: ${certFile}`);
+  }
+
+  // 下载发布配置（release-configuration）
+  if (config['release-configuration']) {
+    const releaseConfigUrl = config['release-configuration'];
+    const ext = getExtFromUrl(releaseConfigUrl) || '.json';
+    const releaseConfigFile = path.join(assetsDir, `release-configuration${ext}`);
+    console.log(`[下载] 发布配置: ${releaseConfigUrl}`);
+    await downloadFile(releaseConfigUrl, releaseConfigFile, '发布配置');
+    domainConfig['release-configuration'] = path.relative(repoDir, releaseConfigFile);
+    console.log(`[完成] 发布配置: ${releaseConfigFile}`);
   }
 
   // 写入 domain.json

@@ -194,7 +194,7 @@ fi
 # 发布配置 JSON（用于 --configurationPath）
 RESOLVED_RELEASE_CONFIG=$(resolve_path "$RELEASE_CONFIG_PATH")
 if [[ ! -f "$RESOLVED_RELEASE_CONFIG" ]]; then
-    warn "发布配置文件不存在: $RESOLVED_RELEASE_CONFIG，将使用默认配置"
+    warn "发布配置文件不存在: ${RESOLVED_RELEASE_CONFIG}，将使用默认配置"
     RESOLVED_RELEASE_CONFIG="$SCRIPT_DIR/build-system/main-configuration.json"
 fi
 
