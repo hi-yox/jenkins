@@ -26,10 +26,10 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 # ============================================================
-# 工作目录（脚本所在目录）
+# 项目根目录（脚本所在目录）
 # ============================================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORK_DIR="$SCRIPT_DIR"
+cd "$SCRIPT_DIR"
 
 # ============================================================
 # 默认参数
@@ -39,7 +39,6 @@ DO_CLEAN=false
 CACHE_DIR="$HOME/telegram-bazel-cache"
 OUTPUT_DIR="$SCRIPT_DIR/build-output"
 CONFIG_FILE=""
-REPO_DIR=""
 
 # ============================================================
 # 解析命令行参数
@@ -58,10 +57,6 @@ while [[ $# -gt 0 ]]; do
             CACHE_DIR="$2"
             shift 2
             ;;
-        --repo-dir)
-            REPO_DIR="$2"
-            shift 2
-            ;;
         --help|-h)
             echo "用法: $0 [选项]"
             echo ""
@@ -70,7 +65,6 @@ while [[ $# -gt 0 ]]; do
             echo "                            可选: debug_arm64, debug_sim_arm64, release_sim_arm64,"
             echo "                                  release_arm64, release_universal"
             echo "  --config <path>           指定配置文件路径 (默认: ./domain.json)"
-            echo "  --repo-dir <path>         代码仓库根目录 (默认: 脚本目录)"
             echo "  -h, --help                显示帮助信息"
             exit 0
             ;;
@@ -92,34 +86,6 @@ check_dependency() {
 check_dependency python3
 check_dependency git
 
-resolve_absolute_path() {
-    local target="$1"
-    local base="${2:-$PWD}"
-
-    if [[ -z "$target" ]]; then
-        return 1
-    fi
-
-    if [[ "$target" == /* ]]; then
-        printf '%s\n' "$target"
-    else
-        printf '%s\n' "$(cd "$base" && pwd)/$target"
-    fi
-}
-
-if [[ -n "$REPO_DIR" ]]; then
-    PROJECT_DIR="$(resolve_absolute_path "$REPO_DIR" "$PWD")"
-else
-    PROJECT_DIR="$SCRIPT_DIR"
-fi
-
-if [[ ! -d "$PROJECT_DIR" ]]; then
-    error "仓库目录不存在: $PROJECT_DIR"
-fi
-
-cd "$PROJECT_DIR"
-OUTPUT_DIR="$WORK_DIR/build-output"
-
 # ============================================================
 # 读取 domain.json 配置
 # ============================================================
@@ -127,41 +93,16 @@ if [[ -n "$CONFIG_FILE" ]]; then
     if [[ "$CONFIG_FILE" == /* ]]; then
         DOMAIN_JSON="$CONFIG_FILE"
     else
-        DOMAIN_JSON="$WORK_DIR/$CONFIG_FILE"
+        DOMAIN_JSON="$SCRIPT_DIR/$CONFIG_FILE"
     fi
 else
-    DOMAIN_JSON="$WORK_DIR/domain.json"
+    DOMAIN_JSON="$SCRIPT_DIR/domain.json"
 fi
 if [[ ! -f "$DOMAIN_JSON" ]]; then
     error "未找到配置文件: $DOMAIN_JSON"
 fi
 
-CONFIG_BASE_DIR="$(cd "$(dirname "$DOMAIN_JSON")" && pwd)"
-
-resolve_input_path() {
-    local target="$1"
-
-    if [[ -z "$target" ]]; then
-        return 0
-    fi
-
-    if [[ "$target" == /* ]]; then
-        printf '%s\n' "$target"
-        return 0
-    fi
-
-    if [[ -e "$CONFIG_BASE_DIR/$target" ]]; then
-        printf '%s\n' "$CONFIG_BASE_DIR/$target"
-    elif [[ -e "$PROJECT_DIR/$target" ]]; then
-        printf '%s\n' "$PROJECT_DIR/$target"
-    else
-        printf '%s\n' "$CONFIG_BASE_DIR/$target"
-    fi
-}
-
 info "读取 domain.json 配置..."
-info "工作目录:     $WORK_DIR"
-info "仓库目录:     $PROJECT_DIR"
 
 APP_NAME=$(python3 -c "import json; d=json.load(open('$DOMAIN_JSON')); print(d.get('appName', ''))")
 OP_KEY=$(python3 -c "import json; d=json.load(open('$DOMAIN_JSON')); print(d.get('opKey', ''))")
@@ -188,7 +129,7 @@ done
 # ============================================================
 # 读取 versions.json，若配置文件指定了 version 则更新
 # ============================================================
-VERSIONS_JSON="$PROJECT_DIR/versions.json"
+VERSIONS_JSON="$SCRIPT_DIR/versions.json"
 if [[ ! -f "$VERSIONS_JSON" ]]; then
     error "未找到 versions.json 文件"
 fi
@@ -220,11 +161,11 @@ info "Bazel 版本:   $BAZEL_VERSION"
 # ============================================================
 # 计算 Build Number = build_number_offset + git commit count
 # ============================================================
-if [[ ! -f "$PROJECT_DIR/build_number_offset" ]]; then
+if [[ ! -f "$SCRIPT_DIR/build_number_offset" ]]; then
     error "未找到 build_number_offset 文件"
 fi
 
-BUILD_NUMBER_OFFSET=$(cat "$PROJECT_DIR/build_number_offset" | tr -d '[:space:]')
+BUILD_NUMBER_OFFSET=$(cat "$SCRIPT_DIR/build_number_offset" | tr -d '[:space:]')
 GIT_COMMIT_COUNT=$(git rev-list --count HEAD)
 BUILD_NUMBER=$((BUILD_NUMBER_OFFSET + GIT_COMMIT_COUNT))
 
@@ -235,17 +176,26 @@ info "Build Number:        $BUILD_NUMBER"
 # ============================================================
 # 解析证书和发布配置路径（支持相对路径）
 # ============================================================
+resolve_path() {
+    local path="$1"
+    if [[ "$path" == /* ]]; then
+        echo "$path"
+    else
+        echo "$SCRIPT_DIR/$path"
+    fi
+}
+
 # 证书文件（mobileprovision）
-RESOLVED_CERT_PATH=$(resolve_input_path "$CERT_PATH")
+RESOLVED_CERT_PATH=$(resolve_path "$CERT_PATH")
 if [[ ! -f "$RESOLVED_CERT_PATH" ]]; then
     warn "证书文件不存在: $RESOLVED_CERT_PATH"
 fi
 
 # 发布配置 JSON（用于 --configurationPath）
-RESOLVED_RELEASE_CONFIG=$(resolve_input_path "$RELEASE_CONFIG_PATH")
+RESOLVED_RELEASE_CONFIG=$(resolve_path "$RELEASE_CONFIG_PATH")
 if [[ ! -f "$RESOLVED_RELEASE_CONFIG" ]]; then
     warn "发布配置文件不存在: $RESOLVED_RELEASE_CONFIG，将使用默认配置"
-    RESOLVED_RELEASE_CONFIG="$PROJECT_DIR/build-system/main-configuration.json"
+    RESOLVED_RELEASE_CONFIG="$SCRIPT_DIR/build-system/main-configuration.json"
 fi
 
 info "解析后的证书路径:   $RESOLVED_CERT_PATH"
@@ -255,10 +205,10 @@ info "解析后的配置路径:   $RESOLVED_RELEASE_CONFIG"
 # 确定 codesigning 路径
 # ============================================================
 # 优先使用 main-codesigning，如果不存在则用 fake-codesigning
-CODESIGNING_PATH="$PROJECT_DIR/build-system/main-codesigning"
+CODESIGNING_PATH="$SCRIPT_DIR/build-system/main-codesigning"
 if [[ ! -d "$CODESIGNING_PATH" ]]; then
     warn "main-codesigning 目录不存在，使用 fake-codesigning"
-    CODESIGNING_PATH="$PROJECT_DIR/build-system/fake-codesigning"
+    CODESIGNING_PATH="$SCRIPT_DIR/build-system/fake-codesigning"
 fi
 
 # 如果 domain.json 指定了 cert，则将其复制到 codesigning profiles 目录
@@ -273,8 +223,8 @@ info "Codesigning 路径: $CODESIGNING_PATH"
 # 替换图标和启动图资源
 # 将 icon 目录中的所有文件直接覆盖到 Telegram/Telegram-iOS/
 # ============================================================
-RESOLVED_ICON_PATH=$(resolve_input_path "$ICON_PATH")
-TARGET_IOS_DIR="$PROJECT_DIR/Telegram/Telegram-iOS"
+RESOLVED_ICON_PATH=$(resolve_path "$ICON_PATH")
+TARGET_IOS_DIR="$SCRIPT_DIR/Telegram/Telegram-iOS"
 
 if [[ -d "$RESOLVED_ICON_PATH" ]]; then
     info "图标源目录: $RESOLVED_ICON_PATH"
@@ -289,8 +239,8 @@ fi
 # ============================================================
 # 替换启动图
 # ============================================================
-RESOLVED_LAUNCH_SCREEN=$(resolve_input_path "$LAUNCH_SCREEN")
-LAUNCH_IMAGE_DIR="$PROJECT_DIR/Telegram/Telegram-iOS/DefaultAppIcon.xcassets/default_bg.imageset"
+RESOLVED_LAUNCH_SCREEN=$(resolve_path "$LAUNCH_SCREEN")
+LAUNCH_IMAGE_DIR="$SCRIPT_DIR/Telegram/Telegram-iOS/DefaultAppIcon.xcassets/default_bg.imageset"
 
 if [[ -f "$RESOLVED_LAUNCH_SCREEN" ]]; then
     info "启动图文件: $RESOLVED_LAUNCH_SCREEN"
@@ -314,8 +264,8 @@ fi
 # ============================================================
 # 替换项目源码中的配置参数
 # ============================================================
-NETWORK_SWIFT="$PROJECT_DIR/submodules/TelegramCore/Sources/Network/Network.swift"
-BUILD_FILE="$PROJECT_DIR/Telegram/BUILD"
+NETWORK_SWIFT="$SCRIPT_DIR/submodules/TelegramCore/Sources/Network/Network.swift"
+BUILD_FILE="$SCRIPT_DIR/Telegram/BUILD"
 
 # --- 0. 从 Telegram/BUILD 的 CFBundleDisplayName 读取当前 app 名称，替换为 appName ---
 if [[ -n "$APP_NAME" ]]; then
@@ -328,7 +278,7 @@ if [[ -n "$APP_NAME" ]]; then
     else
         info "从 Telegram/BUILD 读取到当前名称: '$OLD_APP_NAME'，替换为 '$APP_NAME'..."
         # 在 Telegram/、submodules/ 目录中递归替换
-        find "$PROJECT_DIR/Telegram" "$PROJECT_DIR/submodules" \
+        find "$SCRIPT_DIR/Telegram" "$SCRIPT_DIR/submodules" \
             -type f \( -name '*.swift' -o -name '*.strings' -o -name '*.plist' -o -name 'BUILD' \) \
             -exec grep -l "$OLD_APP_NAME" {} \; | while read -r file; do
             sed -i '' "s/$OLD_APP_NAME/$APP_NAME/g" "$file"
@@ -448,7 +398,7 @@ echo ""
 # 清理（如果指定 --clean）
 if [[ "$DO_CLEAN" == true ]]; then
     info "清理 bazel 缓存..."
-    python3 "$PROJECT_DIR/build-system/Make/Make.py" \
+    python3 build-system/Make/Make.py \
         --overrideXcodeVersion \
         clean
     success "清理完成"
@@ -463,7 +413,7 @@ mkdir -p "$OUTPUT_DIR"
 BUILD_START_TIME=$(date +%s)
 
 info "开始构建 IPA..."
-python3 "$PROJECT_DIR/build-system/Make/Make.py" \
+python3 build-system/Make/Make.py \
     --overrideXcodeVersion \
     --cacheDir="$CACHE_DIR" \
     build \
