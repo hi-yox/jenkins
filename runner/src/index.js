@@ -98,7 +98,7 @@ async function doConfigPoll() {
     building = true;
 
     try {
-      await processConfig(config, resolvedRepoDir, resolvedBuildDir, resolvedScript);
+      await processConfig(config, resolvedRepoDir, resolvedBuildDir, resolvedScript, API_BASE);
       console.log('[配置查询] 打包任务完成');
     } catch (err) {
       console.error(`[配置查询] 打包失败: ${err.message}`);

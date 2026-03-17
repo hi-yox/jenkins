@@ -1,4 +1,5 @@
 const API_BASE = '/api';
+export const SOCKET_BASE = import.meta.env.VITE_SOCKET_URL || 'http://130.94.33.164:8081';
 
 /**
  * 上传单个文件到服务器，并支持上传进度回调
@@ -93,6 +94,20 @@ export async function getBranches() {
 
   if (!res.ok) {
     throw new Error('获取分支失败');
+  }
+
+  return res.json();
+}
+
+/**
+ * 获取某个 room 的构建日志历史
+ * @param {string} roomId
+ */
+export async function getBuildLogs(roomId) {
+  const res = await fetch(`${API_BASE}/build-logs/${encodeURIComponent(roomId)}`);
+
+  if (!res.ok) {
+    throw new Error('获取构建日志失败');
   }
 
   return res.json();

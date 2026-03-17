@@ -1,5 +1,7 @@
 <script>
-  import { uploadFile, saveConfig, getConfig, getBranches } from './api.js';
+  import { onDestroy } from 'svelte';
+  import { io } from 'socket.io-client';
+  import { uploadFile, saveConfig, getConfig, getBranches, getBuildLogs, SOCKET_BASE } from './api.js';
 
   const uploadFields = [
     { key: 'icon', inputId: 'iconFile', label: '图标 ZIP 文件', accept: '.zip' },
@@ -41,6 +43,84 @@
   let messageType = $state('');
   let queriedConfig = $state(null);
   let querying = $state(false);
+  let activeRoomId = $state('');
+  let buildLogs = $state([]);
+
+  let socket = null;
+
+  function pushBuildLog(entry) {
+    buildLogs = [...buildLogs, entry].slice(-1000);
+  }
+
+  function resetBuildLogs(roomId) {
+    activeRoomId = roomId;
+    buildLogs = [];
+  }
+
+  async function loadBuildLogHistory(roomId) {
+    if (!roomId) {
+      return;
+    }
+
+    try {
+      const result = await getBuildLogs(roomId);
+      buildLogs = result.logs || [];
+    } catch (_) {
+      // 忽略历史日志加载失败，实时日志仍可继续接收
+    }
+  }
+
+  function connectLogRoom(roomId) {
+    if (!roomId) {
+      return;
+    }
+
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+
+    socket = io(SOCKET_BASE, {
+      transports: ['websocket', 'polling']
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join-room', roomId);
+      pushBuildLog({
+        roomId,
+        message: '[系统] 已连接日志通道',
+        level: 'info',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
+    });
+
+    socket.on('build-log', (payload) => {
+      if (payload?.roomId !== roomId) {
+        return;
+      }
+
+      pushBuildLog(payload);
+    });
+
+    socket.on('connect_error', (error) => {
+      pushBuildLog({
+        roomId,
+        message: `[系统] 日志连接失败: ${error.message}`,
+        level: 'error',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
+    });
+  }
+
+  onDestroy(() => {
+    if (socket) {
+      socket.disconnect();
+    }
+  });
 
   async function loadBranches() {
     try {
@@ -176,6 +256,11 @@
 
     submitting = true;
     message = '';
+    const roomId = crypto.randomUUID();
+
+    resetBuildLogs(roomId);
+    connectLogRoom(roomId);
+    await loadBuildLogHistory(roomId);
 
     try {
       const config = {
@@ -184,6 +269,7 @@
         requestHttp: requestHttp.trim(),
         version: version.trim(),
         branch: branch.trim(),
+        roomId,
         domain: domains.filter(d => d.ip.trim()),
         icon: uploadStates.icon.url || '',
         LaunchScreen: uploadStates.LaunchScreen.url || '',
@@ -192,6 +278,14 @@
 
       await saveConfig(config);
       showMessage('配置提交成功！', 'success');
+      pushBuildLog({
+        roomId,
+        message: '[系统] 配置已提交，等待 runner 开始打包',
+        level: 'info',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
     } catch (err) {
       showMessage(`提交失败: ${err.message}`, 'error');
     } finally {
@@ -352,6 +446,23 @@
       <pre>{JSON.stringify(queriedConfig, null, 2)}</pre>
     </section>
   {/if}
+
+  <section class="build-log-section">
+    <h2>打包日志</h2>
+    <div class="build-log-room">roomId: {activeRoomId || '未开始任务'}</div>
+    <div class="build-log-list">
+      {#if buildLogs.length === 0}
+        <div class="build-log-empty">提交配置后将在这里显示实时打包日志</div>
+      {:else}
+        {#each buildLogs as log}
+          <div class={`build-log-line ${log.level || 'info'}`}>
+            <span class="build-log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
+            <span>{log.message}</span>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </section>
 </main>
 
 <style>
@@ -667,5 +778,50 @@
     overflow-x: auto;
     font-size: 0.85rem;
     line-height: 1.5;
+  }
+
+  .build-log-section {
+    margin-bottom: 2rem;
+  }
+
+  .build-log-room {
+    margin-bottom: 0.75rem;
+    color: #334155;
+    font-size: 0.9rem;
+    word-break: break-all;
+  }
+
+  .build-log-list {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 0.75rem;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .build-log-empty {
+    color: #94a3b8;
+    font-size: 0.85rem;
+  }
+
+  .build-log-line {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    padding: 0.15rem 0;
+    word-break: break-word;
+  }
+
+  .build-log-line.error {
+    color: #fca5a5;
+  }
+
+  .build-log-time {
+    color: #93c5fd;
+    min-width: 70px;
+    flex-shrink: 0;
   }
 </style>

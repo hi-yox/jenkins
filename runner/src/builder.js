@@ -107,6 +107,43 @@ function getExtFromUrl(url) {
   return path.extname(pathname) || '';
 }
 
+async function uploadBuildLog(apiBase, roomId, message, level = 'info', done = false, status = '') {
+  if (!apiBase || !roomId) {
+    return;
+  }
+
+  try {
+    await fetch(`${apiBase}/api/build-logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId, message, level, done, status, timestamp: new Date().toISOString() })
+    });
+  } catch (error) {
+    console.error(`[日志上传] 失败: ${error.message}`);
+  }
+}
+
+function createStreamLineLogger(stream, onLine) {
+  let buffer = '';
+
+  stream.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      onLine(line);
+    }
+  });
+
+  stream.on('end', () => {
+    if (buffer) {
+      onLine(buffer);
+      buffer = '';
+    }
+  });
+}
+
 /**
  * 处理配置：下载文件 + 生成 domain.json + 执行打包
  * @param {object} config 从后端获取的配置
@@ -114,7 +151,7 @@ function getExtFromUrl(url) {
  * @param {string} buildDir 打包工作目录（即 auto_build.sh 所在目录）
  * @param {string} scriptPath auto_build.sh 路径
  */
-async function processConfig(config, repoDir, buildDir, scriptPath) {
+async function processConfig(config, repoDir, buildDir, scriptPath, apiBase) {
   // 创建临时资源目录
   const assetsDir = path.join(buildDir, 'build-assets');
   if (!fs.existsSync(assetsDir)) {
@@ -172,6 +209,18 @@ async function processConfig(config, repoDir, buildDir, scriptPath) {
 
   // 构建参数
   const args = ['--config', domainJsonPath, '--repo-dir', repoDir];
+  const roomId = String(config.roomId || '').trim();
+  const buildLogPath = path.join(assetsDir, `build-${Date.now()}.log`);
+
+  function appendBuildLog(message) {
+    fs.appendFileSync(buildLogPath, `${message}\n`);
+  }
+
+  async function logAndUpload(message, level = 'info') {
+    appendBuildLog(message);
+    await uploadBuildLog(apiBase, roomId, message, level);
+  }
+
   if (config.branch) {
     // 切换到目标分支
     console.log(`[分支] 切换到分支: ${config.branch}`);
@@ -190,29 +239,51 @@ async function processConfig(config, repoDir, buildDir, scriptPath) {
   fs.copyFileSync(scriptPath, tempScriptPath);
   fs.chmodSync(tempScriptPath, 0o755);
 
+  await logAndUpload(`[构建] 日志文件: ${buildLogPath}`);
   console.log(`[构建] 开始执行: ${tempScriptPath} ${args.join(' ')}`);
+  await logAndUpload(`[构建] 开始执行: ${tempScriptPath} ${args.join(' ')}`);
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn('bash', [tempScriptPath, ...args], {
-        cwd: repoDir,
-        stdio: 'inherit'
+    try {
+      await new Promise((resolve, reject) => {
+        const child = spawn('bash', [tempScriptPath, ...args], {
+          cwd: repoDir,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        createStreamLineLogger(child.stdout, (line) => {
+          console.log(line);
+          appendBuildLog(line);
+          uploadBuildLog(apiBase, roomId, line, 'info');
+        });
+
+        createStreamLineLogger(child.stderr, (line) => {
+          console.error(line);
+          appendBuildLog(line);
+          uploadBuildLog(apiBase, roomId, line, 'error');
+        });
+
+        child.on('close', (code) => {
+          if (code === 0) {
+            console.log('[构建] 打包完成');
+            resolve();
+          } else {
+            reject(new Error(`打包失败，退出码: ${code}`));
+          }
+        });
+
+        child.on('error', reject);
       });
 
-      child.on('close', (code) => {
-        if (code === 0) {
-          console.log('[构建] 打包完成');
-          resolve();
-        } else {
-          reject(new Error(`打包失败，退出码: ${code}`));
-        }
-      });
-
-      child.on('error', reject);
-    });
+      await uploadBuildLog(apiBase, roomId, '[构建] 打包完成', 'info', true, 'success');
+    } catch (error) {
+      await uploadBuildLog(apiBase, roomId, `[构建] 打包失败: ${error.message}`, 'error', true, 'failed');
+      throw error;
+    }
   } finally {
     if (fs.existsSync(tempScriptPath)) {
       fs.unlinkSync(tempScriptPath);
       console.log(`[清理] 已删除临时脚本: ${tempScriptPath}`);
+      await logAndUpload(`[清理] 已删除临时脚本: ${tempScriptPath}`);
     }
   }
 }
