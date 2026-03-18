@@ -9,6 +9,7 @@ const configRouter = require('./routes/config');
 const branchesRouter = require('./routes/branches');
 const buildLogsRouter = require('./routes/build-logs');
 const buildArtifactsRouter = require('./routes/build-artifacts');
+const gitReposRouter = require('./routes/git-repos');
 
 const app = express();
 const PORT = process.env.PORT || 8081;
@@ -50,6 +51,7 @@ app.use('/api/config', configRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/build-logs', buildLogsRouter);
 app.use('/api/build-artifacts', buildArtifactsRouter);
+app.use('/api/git-repos', gitReposRouter);
 
 server.listen(PORT, () => {
   console.log(`Build Config Server running on http://localhost:${PORT}`);

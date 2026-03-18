@@ -20,13 +20,15 @@ function getRemoteBranches(repoDir) {
 /**
  * 上报分支列表到后端
  * @param {string} apiBase 后端地址
+ * @param {string} repoId 仓库 ID
+ * @param {string} repoName 仓库名称
  * @param {string[]} branches 分支列表
  */
-async function reportBranches(apiBase, branches) {
+async function reportBranches(apiBase, repoId, repoName, branches) {
   const res = await fetch(`${apiBase}/api/branches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branches })
+    body: JSON.stringify({ repoId, repoName, branches })
   });
 
   if (!res.ok) {

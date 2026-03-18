@@ -5,15 +5,25 @@ const router = express.Router();
 
 // POST /api/config - 追加配置到队列
 router.post('/', (req, res) => {
-  const config = req.body;
+  const config = req.body || {};
+  const appName = String(config.appName || '').trim();
+  const repoId = String(config.repoId || '').trim();
+  const repoName = String(config.repoName || '').trim();
 
   // 校验必填字段
-  if (!config.appName) {
+  if (!appName) {
     return res.status(400).json({ error: '缺少 appName 参数' });
+  }
+
+  if (!repoId) {
+    return res.status(400).json({ error: '缺少 repoId 参数，请先选择已拉取完成的仓库' });
   }
 
   enqueueConfig({
     ...config,
+    appName,
+    repoId,
+    repoName,
     createdAt: new Date().toISOString()
   });
 

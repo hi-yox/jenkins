@@ -89,14 +89,53 @@ export async function getConfig() {
 /**
  * 获取可用分支列表
  */
-export async function getBranches() {
-  const res = await fetch(`${API_BASE}/branches`);
+export async function getBranches(repoId = '') {
+  const query = repoId ? `?repoId=${encodeURIComponent(repoId)}` : '';
+  const res = await fetch(`${API_BASE}/branches${query}`);
 
   if (!res.ok) {
     throw new Error('获取分支失败');
   }
 
   return res.json();
+}
+
+/**
+ * 获取仓库配置及拉取状态列表
+ */
+export async function getGitRepos() {
+  const res = await fetch(`${API_BASE}/git-repos`);
+
+  if (!res.ok) {
+    throw new Error('获取仓库列表失败');
+  }
+
+  return res.json();
+}
+
+/**
+ * 新增仓库配置
+ * @param {{name: string, repoUrl: string, username: string, password: string}} payload
+ */
+export async function createGitRepo(payload) {
+  const res = await fetch(`${API_BASE}/git-repos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || '保存仓库失败');
+  }
+
+  return data;
 }
 
 /**

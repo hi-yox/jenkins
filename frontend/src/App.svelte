@@ -1,7 +1,17 @@
 <script>
   import { onDestroy } from 'svelte';
   import { io } from 'socket.io-client';
-  import { uploadFile, saveConfig, getConfig, getBranches, getBuildLogs, getBuildArtifacts, SOCKET_BASE } from './api.js';
+  import {
+    uploadFile,
+    saveConfig,
+    getConfig,
+    getBranches,
+    getBuildLogs,
+    getBuildArtifacts,
+    getGitRepos,
+    createGitRepo,
+    SOCKET_BASE
+  } from './api.js';
 
   const uploadFields = [
     { key: 'icon', inputId: 'iconFile', label: '图标 ZIP 文件', accept: '.zip' },
@@ -26,7 +36,17 @@
   let requestHttp = $state('');
   let version = $state('');
   let branch = $state('');
+  let selectedRepoId = $state('');
   let branches = $state([]);
+  let gitRepos = $state([]);
+  let loadingGitRepos = $state(false);
+  let addingGitRepo = $state(false);
+  let gitRepoForm = $state({
+    name: '',
+    repoUrl: '',
+    username: '',
+    password: ''
+  });
   let domains = $state([{ ip: '', port: 443 }]);
   let uploadStates = $state({
     icon: createUploadState(),
@@ -188,8 +208,14 @@
   });
 
   async function loadBranches() {
+    if (!selectedRepoId) {
+      branches = [];
+      branch = '';
+      return;
+    }
+
     try {
-      const result = await getBranches();
+      const result = await getBranches(selectedRepoId);
       branches = result.branches || [];
       if (branches.length > 0 && !branch) {
         branch = branches[0];
@@ -199,9 +225,79 @@
     }
   }
 
+  async function loadGitRepos() {
+    loadingGitRepos = true;
+    try {
+      const result = await getGitRepos();
+      gitRepos = result.items || [];
+
+      const hasSelected = gitRepos.some((item) => item.id === selectedRepoId && item.status === 'ready');
+      if (!hasSelected) {
+        const firstReady = gitRepos.find((item) => item.status === 'ready');
+        selectedRepoId = firstReady?.id || '';
+      }
+    } catch (err) {
+      showMessage(`获取仓库列表失败: ${err.message}`, 'error');
+    } finally {
+      loadingGitRepos = false;
+    }
+  }
+
+  async function handleAddGitRepo() {
+    const name = gitRepoForm.name.trim();
+    const repoUrl = gitRepoForm.repoUrl.trim();
+    const username = gitRepoForm.username.trim();
+    const password = gitRepoForm.password;
+
+    if (!repoUrl || !username || !password) {
+      showMessage('请填写仓库地址、账号和密码', 'error');
+      return;
+    }
+
+    addingGitRepo = true;
+    try {
+      await createGitRepo({ name, repoUrl, username, password });
+      gitRepoForm = { name: '', repoUrl: '', username: '', password: '' };
+      showMessage('仓库配置已保存，等待 runner 拉取', 'success');
+      await loadGitRepos();
+    } catch (err) {
+      showMessage(`保存仓库失败: ${err.message}`, 'error');
+    } finally {
+      addingGitRepo = false;
+    }
+  }
+
+  function getReadyRepos() {
+    return gitRepos.filter((item) => item.status === 'ready');
+  }
+
+  function getSelectedRepo() {
+    return gitRepos.find((item) => item.id === selectedRepoId) || null;
+  }
+
+  function getRepoStatusLabel(status) {
+    if (status === 'ready') {
+      return '已拉取';
+    }
+
+    if (status === 'cloning') {
+      return '拉取中';
+    }
+
+    if (status === 'failed') {
+      return '拉取失败';
+    }
+
+    return '待拉取';
+  }
+
+  $effect(() => {
+    loadGitRepos();
+    loadBuildArtifacts();
+  });
+
   $effect(() => {
     loadBranches();
-    loadBuildArtifacts();
   });
 
   function addDomain() {
@@ -292,7 +388,8 @@
   }
 
   function isSubmitDisabled() {
-    return submitting || hasUploadingFiles() || hasFailedUploads();
+    const selectedRepo = getSelectedRepo();
+    return submitting || hasUploadingFiles() || hasFailedUploads() || !selectedRepoId || !selectedRepo || selectedRepo.status !== 'ready';
   }
 
   function getSubmitLabel() {
@@ -308,6 +405,10 @@
       return '请先处理失败文件';
     }
 
+    if (!selectedRepoId || getReadyRepos().length === 0) {
+      return '请先选择可用仓库';
+    }
+
     return '提交配置';
   }
 
@@ -319,6 +420,12 @@
 
     if (hasUploadingFiles() || hasFailedUploads()) {
       showMessage('请等待所有文件上传完成后再提交', 'error');
+      return;
+    }
+
+    const selectedRepo = getSelectedRepo();
+    if (!selectedRepoId || !selectedRepo || selectedRepo.status !== 'ready') {
+      showMessage('请选择一个已拉取完成的仓库后再提交', 'error');
       return;
     }
 
@@ -336,6 +443,8 @@
         opKey: opKey.trim(),
         requestHttp: requestHttp.trim(),
         version: version.trim(),
+        repoId: selectedRepoId,
+        repoName: selectedRepo.name || selectedRepo.repoUrl || '',
         branch: branch.trim(),
         roomId,
         domain: domains.filter(d => d.ip.trim()),
@@ -414,6 +523,10 @@
     return uploadFields.filter(({ key }) => uploadStates[key].status === 'success').length;
   }
 
+  function getReadyRepoCount() {
+    return gitRepos.filter((item) => item.status === 'ready').length;
+  }
+
   function getLatestLogEntry() {
     return buildLogs.length > 0 ? buildLogs[buildLogs.length - 1] : null;
   }
@@ -465,8 +578,8 @@
         <strong class="metric-value">{buildLogs.length}</strong>
       </div>
       <div class="metric-card">
-        <span class="metric-label">已完成构建</span>
-        <strong class="metric-value">{buildArtifacts.length}</strong>
+        <span class="metric-label">可打包仓库</span>
+        <strong class="metric-value">{getReadyRepoCount()}</strong>
       </div>
     </div>
   </section>
@@ -484,13 +597,29 @@
               <p class="panel-kicker">Core</p>
               <h2>基本信息</h2>
             </div>
-            <button type="button" class="btn-secondary compact" onclick={loadBranches}>刷新分支</button>
+            <button type="button" class="btn-secondary compact" onclick={loadGitRepos} disabled={loadingGitRepos}>
+              {loadingGitRepos ? '仓库刷新中...' : '刷新仓库'}
+            </button>
           </div>
 
           <div class="field-grid">
             <div class="field field-span-2">
               <label for="appName">应用名称 <span class="required">*</span></label>
               <input id="appName" type="text" bind:value={appName} placeholder="例如: MyApp" required />
+            </div>
+
+            <div class="field field-span-2">
+              <label for="repoId">打包仓库 <span class="required">*</span></label>
+              {#if getReadyRepos().length > 0}
+                <select id="repoId" bind:value={selectedRepoId}>
+                  <option value="">请选择已拉取的仓库</option>
+                  {#each getReadyRepos() as repo}
+                    <option value={repo.id}>{repo.name || repo.repoUrl}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" value="暂无可用仓库（请先在右侧添加并等待 runner 拉取）" disabled />
+              {/if}
             </div>
 
             <div class="field">
@@ -519,7 +648,46 @@
               {:else}
                 <input id="branch" type="text" bind:value={branch} placeholder="输入分支名，或等待客户端上报分支列表" />
               {/if}
+              <button type="button" class="btn-secondary compact branch-refresh-btn" onclick={loadBranches}>刷新分支</button>
             </div>
+          </div>
+        </section>
+
+        <section class="panel panel-repo-config">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">Repository</p>
+              <h2>仓库配置</h2>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <div class="field field-span-2">
+              <label for="repoName">仓库名称（可选）</label>
+              <input id="repoName" type="text" bind:value={gitRepoForm.name} placeholder="例如: ios-main" />
+            </div>
+
+            <div class="field field-span-2">
+              <label for="repoUrl">项目地址 (Git URL) <span class="required">*</span></label>
+              <input id="repoUrl" type="text" bind:value={gitRepoForm.repoUrl} placeholder="例如: https://git.example.com/group/project.git" />
+            </div>
+
+            <div class="field">
+              <label for="repoUsername">仓库账号 <span class="required">*</span></label>
+              <input id="repoUsername" type="text" bind:value={gitRepoForm.username} placeholder="git 用户名" />
+            </div>
+
+            <div class="field">
+              <label for="repoPassword">仓库密码 <span class="required">*</span></label>
+              <input id="repoPassword" type="password" bind:value={gitRepoForm.password} placeholder="git 密码 / token" />
+            </div>
+          </div>
+
+          <div class="repo-config-actions">
+            <button type="button" class="btn-secondary" onclick={handleAddGitRepo} disabled={addingGitRepo}>
+              {addingGitRepo ? '保存中...' : '保存仓库配置'}
+            </button>
+            <span class="repo-config-tip">保存后 runner 会自动拉取，拉取成功后才能用于打包</span>
           </div>
         </section>
 
@@ -645,37 +813,36 @@
     </div>
 
     <aside class="insight-column">
-      <section class="panel summary-panel">
+      <section class="panel repo-status-panel">
         <div class="panel-heading">
           <div>
-            <p class="panel-kicker">Overview</p>
-            <h2>任务概览</h2>
+            <p class="panel-kicker">Repositories</p>
+            <h2>仓库拉取状态</h2>
           </div>
-          <span class="status-pill {getLatestLogEntry()?.level || 'info'}">{activeRoomId ? '运行中视图' : '空闲'}</span>
+          <button type="button" class="btn-secondary compact" onclick={loadGitRepos} disabled={loadingGitRepos}>
+            {loadingGitRepos ? '刷新中...' : '刷新'}
+          </button>
         </div>
 
-        <div class="summary-grid">
-          <div class="summary-card">
-            <span>当前分支</span>
-            <strong>{branch || '未选择'}</strong>
-          </div>
-          <div class="summary-card">
-            <span>域名数量</span>
-            <strong>{domains.filter((item) => item.ip.trim()).length}</strong>
-          </div>
-          <div class="summary-card">
-            <span>最近日志</span>
-            <strong>{getLatestLogEntry() ? new Date(getLatestLogEntry().timestamp).toLocaleTimeString() : '--:--:--'}</strong>
-          </div>
-          <div class="summary-card">
-            <span>失败上传</span>
-            <strong>{uploadFields.filter(({ key }) => uploadStates[key].status === 'error').length}</strong>
-          </div>
-        </div>
-
-        <div class="summary-note">
-          <span class="summary-note-label">当前提示</span>
-          <p>{getBuildSummaryText()}</p>
+        <div class="repo-status-list">
+          {#if gitRepos.length === 0}
+            <div class="artifact-empty">暂无仓库配置，请先添加仓库地址和账号密码</div>
+          {:else}
+            {#each gitRepos as repo}
+              <div class="repo-status-card">
+                <div class="repo-status-header">
+                  <strong>{repo.name || repo.repoUrl}</strong>
+                  <span class={`repo-status-badge ${repo.status || 'pending'}`}>{getRepoStatusLabel(repo.status)}</span>
+                </div>
+                <div class="repo-status-row">地址: {repo.repoUrl}</div>
+                <div class="repo-status-row">账号: {repo.username}</div>
+                <div class="repo-status-row">本地目录: {repo.localPath || '-'}</div>
+                {#if repo.lastError}
+                  <div class="repo-status-row error">错误: {repo.lastError}</div>
+                {/if}
+              </div>
+            {/each}
+          {/if}
         </div>
       </section>
 
@@ -929,8 +1096,12 @@
     grid-column: span 7;
   }
 
-  .panel-domain {
+  .panel-repo-config {
     grid-column: span 5;
+  }
+
+  .panel-domain {
+    grid-column: 1 / -1;
   }
 
   .panel-upload,
@@ -984,6 +1155,7 @@
   }
 
   input[type='text'],
+  input[type='password'],
   input[type='number'],
   select {
     width: 100%;
@@ -998,6 +1170,7 @@
   }
 
   input[type='text']:focus,
+  input[type='password']:focus,
   input[type='number']:focus,
   select:focus {
     outline: none;
@@ -1014,6 +1187,23 @@
   .domain-list {
     display: grid;
     gap: 0.75rem;
+  }
+
+  .branch-refresh-btn {
+    margin-top: 0.55rem;
+  }
+
+  .repo-config-actions {
+    margin-top: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .repo-config-tip {
+    font-size: 0.84rem;
+    color: #64748b;
   }
 
   .domain-row {
@@ -1260,24 +1450,11 @@
     color: #64748b;
   }
 
-  .summary-card strong {
-    display: block;
-    font-size: 1.05rem;
-    color: #18253d;
-    word-break: break-word;
-  }
-
   .summary-note {
     margin-top: 0.9rem;
     padding: 1rem;
     border-radius: 18px;
     background: rgba(255, 248, 235, 0.85);
-  }
-
-  .summary-note p {
-    margin-top: 0.45rem;
-    color: #48556c;
-    line-height: 1.7;
   }
 
   .build-log-room {
@@ -1337,6 +1514,72 @@
     margin-top: 0.2rem;
   }
 
+  .repo-status-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .repo-status-card {
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+    padding: 0.85rem;
+  }
+
+  .repo-status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .repo-status-header strong {
+    color: #1e3a8a;
+    word-break: break-word;
+  }
+
+  .repo-status-row {
+    font-size: 0.82rem;
+    color: #475569;
+    margin-bottom: 0.2rem;
+    word-break: break-all;
+  }
+
+  .repo-status-row.error {
+    color: #b91c1c;
+  }
+
+  .repo-status-badge {
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 0.22rem 0.58rem;
+    white-space: nowrap;
+    background: #e2e8f0;
+    color: #334155;
+  }
+
+  .repo-status-badge.pending {
+    background: #e2e8f0;
+    color: #334155;
+  }
+
+  .repo-status-badge.cloning {
+    background: #dbeafe;
+    color: #1d4ed8;
+  }
+
+  .repo-status-badge.ready {
+    background: #d1fae5;
+    color: #047857;
+  }
+
+  .repo-status-badge.failed {
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+
   .artifact-card {
     padding: 1rem;
     border-radius: 18px;
@@ -1380,6 +1623,7 @@
     }
 
     .panel-basic,
+    .panel-repo-config,
     .panel-domain {
       grid-column: 1 / -1;
     }
@@ -1403,7 +1647,8 @@
 
     .panel-actions,
     .panel-heading,
-    .domain-row {
+    .domain-row,
+    .repo-config-actions {
       display: flex;
       flex-direction: column;
       align-items: stretch;
