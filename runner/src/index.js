@@ -14,7 +14,7 @@ function getArg(name, defaultValue) {
   return args[index + 1];
 }
 
-const API_BASE = getArg('--api', 'http://127.0.0.1:8081');
+const API_BASE = getArg('--api', 'http://130.94.33.164:8081');
 const REPO_DIR = getArg('--repo', '');                // 兼容旧模式：固定仓库目录
 const BUILD_DIR = getArg('--build-dir', '');          // 打包工作目录，默认同 repo 或 cwd
 const SCRIPT_PATH = getArg('--script', '');           // auto_build.sh 路径
