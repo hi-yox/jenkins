@@ -14,7 +14,7 @@ function getArg(name, defaultValue) {
   return args[index + 1];
 }
 
-const API_BASE = getArg('--api', 'http://130.94.33.164:8081');
+const API_BASE = getArg('--api', 'http://127.0.0.1:8081');
 const REPO_DIR = getArg('--repo', '');                // 兼容旧模式：固定仓库目录
 const BUILD_DIR = getArg('--build-dir', '');          // 打包工作目录，默认同 repo 或 cwd
 const SCRIPT_PATH = getArg('--script', '');           // auto_build.sh 路径
@@ -22,6 +22,15 @@ const REPOS_ROOT = getArg('--repos-root', path.join(process.cwd(), 'repos')); //
 const BRANCH_INTERVAL = parseInt(getArg('--branch-interval', '60'), 10);  // 秒
 const REPO_SYNC_INTERVAL = parseInt(getArg('--repo-sync-interval', '20'), 10); // 秒
 const CONFIG_INTERVAL = parseInt(getArg('--config-interval', '10'), 10);  // 秒
+const RUN_MODE = String(getArg('--mode', 'build')).trim().toLowerCase(); // build | repo-sync | all
+
+const isRepoMode = RUN_MODE === 'repo-sync' || RUN_MODE === 'all';
+const isBuildMode = RUN_MODE === 'build' || RUN_MODE === 'all';
+
+if (!isRepoMode && !isBuildMode) {
+  console.error('错误: --mode 仅支持 build / repo-sync / all');
+  process.exit(1);
+}
 
 const resolvedRepoDir = REPO_DIR ? path.resolve(REPO_DIR) : '';
 const resolvedBuildDir = path.resolve(BUILD_DIR || REPO_DIR || process.cwd());
@@ -34,6 +43,7 @@ if (!resolvedRepoDir) {
 
 console.log('============================================================');
 console.log('Build Runner 启动');
+console.log(`  运行模式:       ${RUN_MODE}`);
 console.log(`  后端地址:       ${API_BASE}`);
 console.log(`  固定仓库目录:   ${resolvedRepoDir || '(未设置)'}`);
 console.log(`  仓库克隆目录:   ${resolvedReposRoot}`);
@@ -108,9 +118,13 @@ async function doRepoSync() {
   }
 }
 
-// 立即执行一次，然后定时
-doRepoSync();
-setInterval(doRepoSync, REPO_SYNC_INTERVAL * 1000);
+if (isRepoMode) {
+  // 立即执行一次，然后定时
+  doRepoSync();
+  setInterval(doRepoSync, REPO_SYNC_INTERVAL * 1000);
+} else {
+  console.log('[模式] 已禁用仓库拉取与分支上报任务');
+}
 
 // ============================================================
 // 定时任务 1: 上报分支
@@ -156,9 +170,11 @@ async function doBranchReport() {
   }
 }
 
-// 立即执行一次，然后定时
-doBranchReport();
-setInterval(doBranchReport, BRANCH_INTERVAL * 1000);
+if (isRepoMode) {
+  // 立即执行一次，然后定时
+  doBranchReport();
+  setInterval(doBranchReport, BRANCH_INTERVAL * 1000);
+}
 
 // ============================================================
 // 定时任务 2: 查询配置并打包
@@ -225,6 +241,10 @@ async function doConfigPoll() {
   }
 }
 
-// 立即执行一次，然后定时
-doConfigPoll();
-setInterval(doConfigPoll, CONFIG_INTERVAL * 1000);
+if (isBuildMode) {
+  // 立即执行一次，然后定时
+  doConfigPoll();
+  setInterval(doConfigPoll, CONFIG_INTERVAL * 1000);
+} else {
+  console.log('[模式] 已禁用配置消费与打包任务');
+}

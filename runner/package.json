@@ -4,8 +4,13 @@
   "description": "定时拉取分支上报 + 定时查询配置并触发打包",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "start": "node src/index.js --mode build",
+    "start:repo-sync": "node src/index.js --mode repo-sync",
+    "start:build": "node src/index.js --mode build",
+    "start:all": "node src/index.js --mode all",
+    "dev": "node --watch src/index.js --mode build",
+    "dev:repo-sync": "node --watch src/index.js --mode repo-sync",
+    "dev:all": "node --watch src/index.js --mode all"
   },
   "dependencies": {}
 }
