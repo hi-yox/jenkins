@@ -5,10 +5,10 @@
     "repoUrl": "https://git.thgram.top/im1/im_ios/teamgram",
     "username": "xiaoxiao",
     "password": "AAbb8899@$",
-    "status": "failed",
+    "status": "ready",
     "localPath": "/Users/x/Documents/maodou/jinkens/runner/repos/teamgram-17738458",
-    "lastError": "Command failed: git clone --origin origin https://***:***@git.thgram.top/im1/im_ios/teamgram /Users/x/Documents/maodou/jinkens/runner/repos/teamgram-17738458\nCloning into '/Users/x/Documents/maodou/jinkens/runner/repos/teamgram-17738458'...\nremote: HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://git.thgram.top/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied\nfatal: Authentication failed for 'https://git.thgram.top/im1/im_ios/teamgram/'\n",
+    "lastError": "",
     "createdAt": "2026-03-18T14:58:05.864Z",
-    "updatedAt": "2026-03-18T14:59:25.043Z"
+    "updatedAt": "2026-03-18T15:19:04.236Z"
   }
 ]

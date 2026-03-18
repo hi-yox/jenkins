@@ -143,7 +143,7 @@ function cloneRepo(repo, localPath) {
   try {
     execFileSync(
       'git',
-      ['-c', `credential.username=${username}`, 'clone', '--origin', 'origin', cloneRepoUrl, localPath],
+      ['-c', `credential.username=${username}`, 'clone', '--recursive', '-j8', '--origin', 'origin', cloneRepoUrl, localPath],
       {
         stdio: 'pipe',
         env: {
