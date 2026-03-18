@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
@@ -18,6 +19,41 @@ function maskCredential(value) {
   return String(value || '').replace(/\/\/([^:@/]+):([^@/]+)@/g, '//***:***@');
 }
 
+function normalizeCloneRepoUrl(repoUrl) {
+  const normalized = String(repoUrl || '').trim();
+  if (!normalized) {
+    throw new Error('仓库地址为空');
+  }
+
+  if (/^git@/i.test(normalized) || /^ssh:\/\//i.test(normalized)) {
+    return { url: normalized, protocol: 'ssh' };
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { url: normalized, protocol: parsed.protocol.replace(':', '') || 'unknown' };
+    }
+
+    // 避免 URL 中残留用户名密码
+    parsed.username = '';
+    parsed.password = '';
+    return { url: parsed.toString(), protocol: parsed.protocol.replace(':', '') };
+  } catch (_) {
+    return { url: normalized, protocol: 'unknown' };
+  }
+}
+
+function extractExecError(error) {
+  const stderrText = error?.stderr ? String(error.stderr) : '';
+  const stdoutText = error?.stdout ? String(error.stdout) : '';
+  const merged = [stderrText.trim(), stdoutText.trim(), String(error?.message || '').trim()]
+    .filter(Boolean)
+    .join(' | ');
+
+  return maskCredential(merged || '仓库拉取失败');
+}
+
 function isGitRepo(localPath) {
   if (!localPath) {
     return false;
@@ -25,21 +61,6 @@ function isGitRepo(localPath) {
 
   const gitDir = path.join(localPath, '.git');
   return fs.existsSync(gitDir);
-}
-
-function buildAuthRepoUrl(repoUrl, username, password) {
-  try {
-    const urlObj = new URL(repoUrl);
-    if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
-      return repoUrl;
-    }
-
-    urlObj.username = username;
-    urlObj.password = password;
-    return urlObj.toString();
-  } catch (_) {
-    return repoUrl;
-  }
 }
 
 function resolveRepoLocalPath(reposRoot, repo) {
@@ -82,12 +103,67 @@ async function reportRepoStatus(apiBase, repoId, payload) {
 }
 
 function cloneRepo(repo, localPath) {
-  const authUrl = buildAuthRepoUrl(repo.repoUrl, repo.username, repo.password);
+  const username = String(repo.username || '').trim();
+  const password = String(repo.password || '');
+  const { url: cloneRepoUrl, protocol } = normalizeCloneRepoUrl(repo.repoUrl);
+
+  if (!username) {
+    throw new Error('仓库账号为空');
+  }
+
+  if (!password) {
+    throw new Error('仓库密码为空');
+  }
+
+  if (protocol === 'ssh') {
+    throw new Error('当前仓库地址是 SSH 协议，账号密码模式仅支持 HTTPS，请改为 https://...git 地址或改用 SSH Key');
+  }
+
+  if (protocol !== 'http' && protocol !== 'https') {
+    throw new Error(`不支持的仓库地址协议: ${protocol}`);
+  }
+
+  const askPassScriptPath = path.join(os.tmpdir(), `git-askpass-${process.pid}-${Date.now()}.sh`);
+  const askPassScriptContent = [
+    '#!/bin/sh',
+    'case "$1" in',
+    '  *Username*|*username*)',
+    '    printf "%s\\n" "$GIT_AUTH_USERNAME"',
+    '    ;;',
+    '  *)',
+    '    printf "%s\\n" "$GIT_AUTH_PASSWORD"',
+    '    ;;',
+    'esac',
+    ''
+  ].join('\n');
 
   fs.mkdirSync(path.dirname(localPath), { recursive: true });
-  execFileSync('git', ['clone', '--origin', 'origin', authUrl, localPath], {
-    stdio: 'pipe'
-  });
+  fs.writeFileSync(askPassScriptPath, askPassScriptContent, { mode: 0o700 });
+
+  try {
+    execFileSync(
+      'git',
+      ['-c', `credential.username=${username}`, 'clone', '--origin', 'origin', cloneRepoUrl, localPath],
+      {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_ASKPASS: askPassScriptPath,
+          GIT_AUTH_USERNAME: username,
+          GIT_AUTH_PASSWORD: password
+        }
+      }
+    );
+  } catch (error) {
+    throw new Error(extractExecError(error));
+  } finally {
+    try {
+      fs.unlinkSync(askPassScriptPath);
+    } catch (_) {
+      // 忽略临时脚本清理失败
+    }
+  }
 }
 
 async function syncGitRepos(apiBase, reposRoot, logger = console) {
