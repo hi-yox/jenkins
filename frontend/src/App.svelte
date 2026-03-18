@@ -50,6 +50,8 @@
   let buildLogs = $state([]);
   let buildArtifacts = $state([]);
   let loadingArtifacts = $state(false);
+  let testRoomId = $state('');
+  let joiningRoom = $state(false);
 
   let socket = null;
   const LOG_RETRY_MAX_ATTEMPTS = 8;
@@ -360,6 +362,36 @@
     }
   }
 
+  async function handleJoinTestRoom() {
+    const roomId = testRoomId.trim();
+    if (!roomId) {
+      showMessage('请输入 roomId 后再测试', 'error');
+      return;
+    }
+
+    joiningRoom = true;
+    message = '';
+    resetBuildLogs(roomId);
+    connectLogRoom(roomId);
+
+    try {
+      await loadBuildLogHistory(roomId);
+      showMessage(`已加入测试房间: ${roomId}`, 'success');
+      pushBuildLog({
+        roomId,
+        message: `[系统] 已手动加入测试房间 ${roomId}`,
+        level: 'info',
+        timestamp: new Date().toISOString(),
+        done: false,
+        status: ''
+      });
+    } catch (_) {
+      // 历史日志拉取失败不影响实时连接
+    } finally {
+      joiningRoom = false;
+    }
+  }
+
   async function handleQuery() {
     querying = true;
     queriedConfig = null;
@@ -516,7 +548,18 @@
 
   <section class="build-log-section">
     <h2>打包日志</h2>
-    <div class="build-log-room">roomId: {activeRoomId || '未开始任务'}</div>
+    <!-- <div class="log-test-actions">
+      <input
+        type="text"
+        bind:value={testRoomId}
+        placeholder="输入 roomId，点击加入测试"
+        class="test-room-input"
+      />
+      <button type="button" class="btn-secondary" onclick={handleJoinTestRoom} disabled={joiningRoom}>
+        {joiningRoom ? '加入中...' : '加入房间测试'}
+      </button>
+    </div> -->
+    <!-- <div class="build-log-room">roomId: {activeRoomId || '未开始任务'}</div> -->
     <div class="build-log-list">
       {#if buildLogs.length === 0}
         <div class="build-log-empty">提交配置后将在这里显示实时打包日志</div>
@@ -883,6 +926,17 @@
     word-break: break-all;
   }
 
+  .log-test-actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .test-room-input {
+    flex: 1;
+  }
+
   .build-log-list {
     background: #0f172a;
     color: #e2e8f0;
@@ -956,5 +1010,12 @@
     color: #64748b;
     font-size: 0.9rem;
     margin-top: 0.8rem;
+  }
+
+  @media (max-width: 640px) {
+    .log-test-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
   }
 </style>
