@@ -3,3 +3,5 @@ frontend/node_modules
 runner/node_modules
 frontend/dist
 runner/repos
+backend/uploads/git-repos.json
+backend/uploads/build-artifacts.json
