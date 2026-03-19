@@ -131,14 +131,22 @@ router.patch('/:id/status', (req, res) => {
   const repoId = String(req.params.id || '').trim();
   const payload = req.body || {};
 
+  console.log(`[GitRepos] PATCH status start repoId=${repoId || '(empty)'}`, {
+    status: payload.status,
+    localPath: payload.localPath,
+    hasLastError: Boolean(payload.lastError)
+  });
+
   if (!repoId) {
     return res.status(400).json({ error: '缺少仓库 ID' });
   }
 
   const items = readRepos();
+  console.log(`[GitRepos] 当前仓库数量: ${items.length}`);
   const index = items.findIndex((item) => String(item.id || '') === repoId);
 
   if (index < 0) {
+    console.warn(`[GitRepos] 未找到仓库 repoId=${repoId}`);
     return res.status(404).json({ error: '仓库配置不存在' });
   }
 
@@ -155,6 +163,12 @@ router.patch('/:id/status', (req, res) => {
 
   items[index] = updated;
   writeRepos(items);
+
+  console.log(`[GitRepos] PATCH status success repoId=${repoId}`, {
+    status: updated.status,
+    localPath: updated.localPath,
+    hasLastError: Boolean(updated.lastError)
+  });
 
   res.json({ message: '仓库状态已更新', item: updated });
 });

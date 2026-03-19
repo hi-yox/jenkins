@@ -14,7 +14,7 @@ function normalizeRepoId(value) {
 router.post('/', (req, res) => {
   const { branches: branchList, repoId, repoName } = req.body || {};
 
-  console.log('Received branches:', req.body);
+  console.log('Received branches:', req.body.length );
 
   if (!Array.isArray(branchList) || branchList.length === 0) {
     return res.status(400).json({ error: '请提供 branches 数组' });
