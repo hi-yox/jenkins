@@ -34,28 +34,88 @@ function formatFetchError(error, method, url) {
 async function uploadBuildPackage(apiBase, ipaPath) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
   const uploadUrl = `${normalizedApiBase}/api/upload`;
+  const options = arguments.length > 2 && arguments[2] ? arguments[2] : {};
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  const progressStepPercent = Number(options.progressStepPercent) > 0 ? Number(options.progressStepPercent) : 10;
 
   const output = await new Promise((resolve, reject) => {
-    const args = ['-sS', '-f', '-X', 'POST', '-F', `files=@${ipaPath}`, uploadUrl];
+    const args = ['-S', '-f', '-#', '-X', 'POST', '-F', `files=@${ipaPath}`, uploadUrl];
     const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';
+    let progressBuffer = '';
+    let lastProgress = -1;
+
+    function maybeEmitProgress(line) {
+      if (!onProgress) {
+        return false;
+      }
+
+      const matches = [...line.matchAll(/(\d{1,3}(?:\.\d+)?)%/g)];
+      if (matches.length === 0) {
+        return false;
+      }
+
+      const percent = Math.max(0, Math.min(100, Math.floor(Number(matches[matches.length - 1][1]))));
+      if (!Number.isFinite(percent)) {
+        return false;
+      }
+
+      if (percent === 100 || percent >= lastProgress + progressStepPercent) {
+        lastProgress = percent;
+        try {
+          onProgress(percent);
+        } catch (_error) {
+          // 上传进度回调异常不应影响主流程
+        }
+      }
+      return true;
+    }
+
+    function processStderrChunk(chunkText) {
+      stderr += chunkText;
+      progressBuffer += chunkText;
+
+      const lines = progressBuffer.split(/\r?\n|\r/g);
+      progressBuffer = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) {
+          continue;
+        }
+        maybeEmitProgress(line);
+      }
+    }
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
     });
 
     child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
+      processStderrChunk(chunk.toString());
     });
 
     child.on('error', reject);
     child.on('close', (code) => {
+      if (progressBuffer.trim()) {
+        maybeEmitProgress(progressBuffer.trim());
+      }
+
       if (code !== 0) {
         reject(new Error(`上传 IPA 失败: ${stderr.trim() || `curl 退出码 ${code}`}`));
         return;
       }
+
+      if (onProgress && lastProgress < 100) {
+        try {
+          onProgress(100);
+        } catch (_error) {
+          // 上传进度回调异常不应影响主流程
+        }
+      }
+
       resolve(stdout);
     });
   });
@@ -78,12 +138,17 @@ async function uploadBuildPackage(apiBase, ipaPath) {
 async function uploadBuildPackageWithRetry(apiBase, ipaPath, options = {}) {
   const retryDelayMs = Number(options.retryDelayMs) > 0 ? Number(options.retryDelayMs) : 5000;
   const onRetryLog = typeof options.onRetryLog === 'function' ? options.onRetryLog : null;
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  const progressStepPercent = Number(options.progressStepPercent) > 0 ? Number(options.progressStepPercent) : 10;
 
   let attempt = 0;
   while (true) {
     attempt += 1;
     try {
-      return await uploadBuildPackage(apiBase, ipaPath);
+      return await uploadBuildPackage(apiBase, ipaPath, {
+        onProgress,
+        progressStepPercent
+      });
     } catch (error) {
       const message = `[构建] IPA 上传失败（第 ${attempt} 次）: ${error.message}，${Math.floor(retryDelayMs / 1000)} 秒后重试`;
       if (onRetryLog) {
@@ -430,6 +495,13 @@ async function processConfig(config, repoDir, _buildDir, scriptPath, apiBase) {
       await logAndUpload(`[构建] 开始上传 IPA: ${buildOutputIpaPath}`);
       const uploadedFile = await uploadBuildPackageWithRetry(apiBase, buildOutputIpaPath, {
         retryDelayMs: 5000,
+        progressStepPercent: 10,
+        onProgress: (percent) => {
+          const progressMessage = `[构建] IPA 上传进度: ${percent}%`;
+          console.log(progressMessage);
+          appendBuildLog(progressMessage);
+          uploadBuildLog(apiBase, roomId, progressMessage, 'info');
+        },
         onRetryLog: async (message) => {
           await logAndUpload(message, 'error');
         }
