@@ -10,6 +10,7 @@
     getBuildArtifacts,
     getGitRepos,
     createGitRepo,
+    deleteGitRepo,
     SOCKET_BASE
   } from './api.js';
 
@@ -41,6 +42,7 @@
   let gitRepos = $state([]);
   let loadingGitRepos = $state(false);
   let addingGitRepo = $state(false);
+  let deletingRepoId = $state('');
   let gitRepoForm = $state({
     name: '',
     repoUrl: '',
@@ -264,6 +266,30 @@
       showMessage(`保存仓库失败: ${err.message}`, 'error');
     } finally {
       addingGitRepo = false;
+    }
+  }
+
+  async function handleDeleteGitRepo(repo) {
+    const repoId = String(repo?.id || '').trim();
+    if (!repoId) {
+      return;
+    }
+
+    const repoName = repo.name || repo.repoUrl || repoId;
+    const confirmed = window.confirm(`确认删除仓库「${repoName}」吗？\n删除后 runner 会自动清理本地克隆目录。`);
+    if (!confirmed) {
+      return;
+    }
+
+    deletingRepoId = repoId;
+    try {
+      await deleteGitRepo(repoId);
+      showMessage(`仓库已删除: ${repoName}`, 'success');
+      await loadGitRepos();
+    } catch (err) {
+      showMessage(`删除仓库失败: ${err.message}`, 'error');
+    } finally {
+      deletingRepoId = '';
     }
   }
 
@@ -840,6 +866,16 @@
                 {#if repo.lastError}
                   <div class="repo-status-row error">错误: {repo.lastError}</div>
                 {/if}
+                <div class="repo-status-actions">
+                  <button
+                    type="button"
+                    class="btn-repo-delete"
+                    onclick={() => handleDeleteGitRepo(repo)}
+                    disabled={deletingRepoId === repo.id}
+                  >
+                    {deletingRepoId === repo.id ? '删除中...' : '删除仓库'}
+                  </button>
+                </div>
               </div>
             {/each}
           {/if}
@@ -1308,6 +1344,7 @@
   .btn-primary,
   .btn-query,
   .btn-secondary,
+  .btn-repo-delete,
   .btn-remove,
   .btn-text {
     border: none;
@@ -1318,6 +1355,7 @@
   .btn-primary:hover:not(:disabled),
   .btn-query:hover:not(:disabled),
   .btn-secondary:hover:not(:disabled),
+  .btn-repo-delete:hover:not(:disabled),
   .btn-remove:hover:not(:disabled),
   .btn-text:hover:not(:disabled) {
     transform: translateY(-1px);
@@ -1346,6 +1384,7 @@
   .btn-primary:disabled,
   .btn-query:disabled,
   .btn-secondary:disabled,
+  .btn-repo-delete:disabled,
   .btn-remove:disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -1373,6 +1412,15 @@
     background: #fee2e2;
     color: #b91c1c;
     font-size: 0.9rem;
+  }
+
+  .btn-repo-delete {
+    padding: 0.5rem 0.82rem;
+    border-radius: 10px;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 0.8rem;
+    font-weight: 700;
   }
 
   .btn-text {
@@ -1548,6 +1596,12 @@
 
   .repo-status-row.error {
     color: #b91c1c;
+  }
+
+  .repo-status-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
   }
 
   .repo-status-badge {

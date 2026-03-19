@@ -6,3 +6,5 @@ runner/repos
 backend/uploads/git-repos.json
 backend/uploads/build-artifacts.json
 backend/uploads
+README.md
+LICENSE

@@ -101,6 +101,31 @@ router.post('/', (req, res) => {
   res.json({ message: '仓库配置已保存', item: record, count: items.length });
 });
 
+// DELETE /api/git-repos/:id - 删除仓库配置
+router.delete('/:id', (req, res) => {
+  const repoId = String(req.params.id || '').trim();
+
+  if (!repoId) {
+    return res.status(400).json({ error: '缺少仓库 ID' });
+  }
+
+  const items = readRepos();
+  const index = items.findIndex((item) => String(item.id || '') === repoId);
+
+  if (index < 0) {
+    return res.status(404).json({ error: '仓库配置不存在' });
+  }
+
+  const [removed] = items.splice(index, 1);
+  writeRepos(items);
+
+  res.json({
+    message: '仓库配置已删除',
+    item: removed,
+    count: items.length
+  });
+});
+
 // PATCH /api/git-repos/:id/status - runner 更新仓库拉取状态
 router.patch('/:id/status', (req, res) => {
   const repoId = String(req.params.id || '').trim();

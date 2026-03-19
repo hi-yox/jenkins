@@ -139,6 +139,29 @@ export async function createGitRepo(payload) {
 }
 
 /**
+ * 删除仓库配置
+ * @param {string} repoId
+ */
+export async function deleteGitRepo(repoId) {
+  const res = await fetch(`${API_BASE}/git-repos/${encodeURIComponent(repoId)}`, {
+    method: 'DELETE'
+  });
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || '删除仓库失败');
+  }
+
+  return data;
+}
+
+/**
  * 获取某个 room 的构建日志历史
  * @param {string} roomId
  */
