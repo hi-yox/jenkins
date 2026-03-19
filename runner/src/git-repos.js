@@ -187,15 +187,10 @@ async function reportRepoStatusWithRetry(apiBase, repoId, payload, logger = cons
       return await reportRepoStatus(apiBase, repoId, payload);
     } catch (error) {
       lastError = error;
-
       if (attempt >= maxAttempts || !shouldRetryStatusReport(error)) {
         throw error;
       }
-
       const waitMs = baseDelayMs * attempt;
-      logger.warn(
-        `[仓库同步] 状态上报重试 ${attempt}/${maxAttempts}: repoId=${repoId}, status=${payload.status}, 原因=${maskCredential(error.message || '上报失败')}`
-      );
       await sleep(waitMs);
     }
   }

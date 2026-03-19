@@ -77,6 +77,33 @@
 
   let socket = null;
   const LOG_RETRY_MAX_ATTEMPTS = 8;
+  const GIT_REPO_REFRESH_INTERVAL_MS = 5000;
+  let gitReposRefreshTimer = null;
+
+  function hasRepoPullingTasks() {
+    return gitRepos.some((item) => item.status === 'pending' || item.status === 'cloning');
+  }
+
+  function startGitReposAutoRefresh() {
+    if (gitReposRefreshTimer) {
+      return;
+    }
+
+    gitReposRefreshTimer = setInterval(() => {
+      if (!loadingGitRepos && hasRepoPullingTasks()) {
+        loadGitRepos();
+      }
+    }, GIT_REPO_REFRESH_INTERVAL_MS);
+  }
+
+  function stopGitReposAutoRefresh() {
+    if (!gitReposRefreshTimer) {
+      return;
+    }
+
+    clearInterval(gitReposRefreshTimer);
+    gitReposRefreshTimer = null;
+  }
 
   function pushBuildLog(entry) {
     buildLogs = [...buildLogs, entry].slice(-1000);
@@ -207,6 +234,8 @@
     if (socket) {
       socket.disconnect();
     }
+
+    stopGitReposAutoRefresh();
   });
 
   async function loadBranches() {
@@ -324,6 +353,14 @@
 
   $effect(() => {
     loadBranches();
+  });
+
+  $effect(() => {
+    if (hasRepoPullingTasks()) {
+      startGitReposAutoRefresh();
+    } else {
+      stopGitReposAutoRefresh();
+    }
   });
 
   function addDomain() {
