@@ -8,3 +8,6 @@ backend/uploads/build-artifacts.json
 backend/uploads
 README.md
 LICENSE
+frontend/ui.log
+backend/jenkins.log
+runner/build.log
