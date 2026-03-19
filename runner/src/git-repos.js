@@ -19,6 +19,10 @@ function maskCredential(value) {
   return String(value || '').replace(/\/\/([^:@/]+):([^@/]+)@/g, '//***:***@');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function formatFetchError(error, method, url) {
   const message = String(error?.message || 'fetch failed');
   const cause = error?.cause;
@@ -137,6 +141,68 @@ async function reportRepoStatus(apiBase, repoId, payload) {
   return res.json();
 }
 
+function shouldRetryStatusReport(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const causeCode = String(error?.cause?.code || '').toUpperCase();
+
+  if (
+    causeCode === 'ECONNRESET' ||
+    causeCode === 'ETIMEDOUT' ||
+    causeCode === 'ECONNREFUSED' ||
+    causeCode === 'EPIPE' ||
+    causeCode === 'EAI_AGAIN' ||
+    causeCode === 'ENETUNREACH' ||
+    causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
+    causeCode === 'UND_ERR_SOCKET'
+  ) {
+    return true;
+  }
+
+  if (
+    message.includes('fetch failed') ||
+    message.includes('econnreset') ||
+    message.includes('timed out') ||
+    message.includes('socket')
+  ) {
+    return true;
+  }
+
+  const statusMatch = message.match(/返回异常状态:\s*(\d{3})/);
+  if (statusMatch) {
+    const statusCode = Number(statusMatch[1]);
+    return statusCode === 429 || statusCode >= 500;
+  }
+
+  return false;
+}
+
+async function reportRepoStatusWithRetry(apiBase, repoId, payload, logger = console) {
+  const maxAttempts = Math.max(1, Number.parseInt(process.env.REPO_STATUS_REPORT_MAX_RETRIES || '3', 10) || 3);
+  const baseDelayMs = Math.max(100, Number.parseInt(process.env.REPO_STATUS_REPORT_RETRY_DELAY_MS || '500', 10) || 500);
+
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await reportRepoStatus(apiBase, repoId, payload);
+    } catch (error) {
+      lastError = error;
+
+      if (attempt >= maxAttempts || !shouldRetryStatusReport(error)) {
+        throw error;
+      }
+
+      const waitMs = baseDelayMs * attempt;
+      logger.warn(
+        `[仓库同步] 状态上报重试 ${attempt}/${maxAttempts}: repoId=${repoId}, status=${payload.status}, 原因=${maskCredential(error.message || '上报失败')}`
+      );
+      await sleep(waitMs);
+    }
+  }
+
+  throw lastError || new Error('状态上报失败');
+}
+
 function cloneRepo(repo, localPath) {
   const username = String(repo.username || '').trim();
   const password = String(repo.password || '');
@@ -215,11 +281,17 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
 
     if (isGitRepo(localPath)) {
       if (repo.status !== 'ready' || repo.localPath !== localPath || repo.lastError) {
-        await reportRepoStatus(apiBase, repoId, {
-          status: 'ready',
-          localPath,
-          lastError: ''
-        });
+        try {
+          await reportRepoStatusWithRetry(apiBase, repoId, {
+            status: 'ready',
+            localPath,
+            lastError: ''
+          }, logger);
+        } catch (reportError) {
+          logger.error(
+            `[仓库同步] ready 状态上报失败（本地仓库已存在）: ${repo.name || repo.repoUrl} - ${maskCredential(reportError.message || '状态上报失败')}`
+          );
+        }
       }
 
       synced.push({ ...repo, status: 'ready', localPath, lastError: '' });
@@ -233,21 +305,35 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
 
     try {
       logger.log(`[仓库同步] 上报状态: ${repo.name || repo.repoUrl} -> cloning`);
-      await reportRepoStatus(apiBase, repoId, {
+      await reportRepoStatusWithRetry(apiBase, repoId, {
         status: 'cloning',
         localPath,
         lastError: ''
-      });
+      }, logger);
+
+    } catch (reportError) {
+      logger.warn(
+        `[仓库同步] cloning 状态上报失败，将继续尝试拉取: ${repo.name || repo.repoUrl} - ${maskCredential(reportError.message || '状态上报失败')}`
+      );
+    }
+
+    try {
 
       logger.log(`[仓库同步] 开始拉取: ${repo.name || repo.repoUrl}`);
       cloneRepo(repo, localPath);
       logger.log(`[仓库同步] 拉取完成，准备上报 ready: ${repo.name || repo.repoUrl}`);
 
-      await reportRepoStatus(apiBase, repoId, {
-        status: 'ready',
-        localPath,
-        lastError: ''
-      });
+      try {
+        await reportRepoStatusWithRetry(apiBase, repoId, {
+          status: 'ready',
+          localPath,
+          lastError: ''
+        }, logger);
+      } catch (reportError) {
+        logger.error(
+          `[仓库同步] ready 状态上报失败（仓库已拉取成功）: ${repo.name || repo.repoUrl} - ${maskCredential(reportError.message || '状态上报失败')}`
+        );
+      }
 
       logger.log(`[仓库同步] 拉取完成: ${repo.name || repo.repoUrl}`);
       synced.push({ ...repo, status: 'ready', localPath, lastError: '' });
@@ -256,11 +342,11 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
 
       try {
         logger.log(`[仓库同步] 上报状态: ${repo.name || repo.repoUrl} -> failed`);
-        await reportRepoStatus(apiBase, repoId, {
+        await reportRepoStatusWithRetry(apiBase, repoId, {
           status: 'failed',
           localPath,
           lastError: message
-        });
+        }, logger);
       } catch (reportError) {
         logger.error(`[仓库同步] failed 状态上报失败: ${repo.name || repo.repoUrl} - ${maskCredential(reportError.message || '状态上报失败')}`);
       }
