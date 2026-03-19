@@ -31,10 +31,9 @@ function formatFetchError(error, method, url) {
   return `${method} ${url} 失败: ${message}${causeText}`;
 }
 
-async function uploadBuildPackage(apiBase, ipaPath) {
+async function uploadBuildPackage(apiBase, ipaPath, options = {}) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
   const uploadUrl = `${normalizedApiBase}/api/upload`;
-  const options = arguments.length > 2 && arguments[2] ? arguments[2] : {};
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const progressStepPercent = Number(options.progressStepPercent) > 0 ? Number(options.progressStepPercent) : 10;
 
