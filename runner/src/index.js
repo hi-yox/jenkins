@@ -2,6 +2,7 @@ const path = require('path');
 const { getRemoteBranches, reportBranches } = require('./branches');
 const { fetchConfig, processConfig } = require('./builder');
 const { fetchGitRepos, syncGitRepos } = require('./git-repos');
+const fs = require('fs');
 
 // ============================================================
 // 解析命令行参数
@@ -94,7 +95,30 @@ function findReadyRepoById(repoId) {
 
 async function refreshRepoCache() {
   try {
-    cachedRepos = await syncGitRepos(API_BASE, resolvedReposRoot, console);
+    const previousRepos = Array.isArray(cachedRepos) ? cachedRepos : [];
+    const nextRepos = await syncGitRepos(API_BASE, resolvedReposRoot, console);
+
+    const nextRepoIds = new Set(nextRepos.map((item) => String(item.id || '').trim()).filter(Boolean));
+
+    for (const repo of previousRepos) {
+      const repoId = String(repo.id || '').trim();
+      const localPath = String(repo.localPath || '').trim();
+
+      if (!repoId || !localPath || nextRepoIds.has(repoId)) {
+        continue;
+      }
+
+      try {
+        if (fs.existsSync(localPath)) {
+          fs.rmSync(localPath, { recursive: true, force: true });
+          console.log(`[仓库清理] 已删除本地仓库: ${repo.name || repoId} -> ${localPath}`);
+        }
+      } catch (error) {
+        console.error(`[仓库清理] 删除失败: ${repo.name || repoId} - ${error.message}`);
+      }
+    }
+
+    cachedRepos = nextRepos;
   } catch (error) {
     console.error(`[仓库同步] 失败: ${error.message}`);
   }
