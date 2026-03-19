@@ -19,6 +19,26 @@ function maskCredential(value) {
   return String(value || '').replace(/\/\/([^:@/]+):([^@/]+)@/g, '//***:***@');
 }
 
+function formatFetchError(error, method, url) {
+  const message = String(error?.message || 'fetch failed');
+  const cause = error?.cause;
+
+  if (!cause) {
+    return `${method} ${url} 失败: ${message}`;
+  }
+
+  const causeParts = [
+    cause.code,
+    cause.errno,
+    cause.syscall,
+    cause.address,
+    cause.port !== undefined ? String(cause.port) : ''
+  ].filter(Boolean);
+
+  const causeText = causeParts.length > 0 ? ` (${causeParts.join(' ')})` : '';
+  return `${method} ${url} 失败: ${message}${causeText}`;
+}
+
 function normalizeCloneRepoUrl(repoUrl) {
   const normalized = String(repoUrl || '').trim();
   if (!normalized) {
@@ -76,10 +96,17 @@ function resolveRepoLocalPath(reposRoot, repo) {
 
 async function fetchGitRepos(apiBase) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
-  const res = await fetch(`${normalizedApiBase}/api/git-repos`);
+  const requestUrl = `${normalizedApiBase}/api/git-repos`;
+
+  let res;
+  try {
+    res = await fetch(requestUrl);
+  } catch (error) {
+    throw new Error(formatFetchError(error, 'GET', requestUrl));
+  }
 
   if (!res.ok) {
-    throw new Error(`获取仓库配置失败: ${res.status}`);
+    throw new Error(`GET ${requestUrl} 返回异常状态: ${res.status}`);
   }
 
   const result = await res.json();
@@ -88,15 +115,23 @@ async function fetchGitRepos(apiBase) {
 
 async function reportRepoStatus(apiBase, repoId, payload) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
-  const res = await fetch(`${normalizedApiBase}/api/git-repos/${encodeURIComponent(repoId)}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const requestUrl = `${normalizedApiBase}/api/git-repos/${encodeURIComponent(repoId)}/status`;
+  const requestBody = JSON.stringify(payload);
+
+  let res;
+  try {
+    res = await fetch(requestUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBody
+    });
+  } catch (error) {
+    throw new Error(formatFetchError(error, 'PATCH', requestUrl));
+  }
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`更新仓库状态失败: ${res.status} ${text}`);
+    throw new Error(`PATCH ${requestUrl} 返回异常状态: ${res.status} ${text}`);
   }
 
   return res.json();
@@ -197,6 +232,7 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
     }
 
     try {
+      logger.log(`[仓库同步] 上报状态: ${repo.name || repo.repoUrl} -> cloning`);
       await reportRepoStatus(apiBase, repoId, {
         status: 'cloning',
         localPath,
@@ -205,6 +241,7 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
 
       logger.log(`[仓库同步] 开始拉取: ${repo.name || repo.repoUrl}`);
       cloneRepo(repo, localPath);
+      logger.log(`[仓库同步] 拉取完成，准备上报 ready: ${repo.name || repo.repoUrl}`);
 
       await reportRepoStatus(apiBase, repoId, {
         status: 'ready',
@@ -216,11 +253,17 @@ async function syncGitRepos(apiBase, reposRoot, logger = console) {
       synced.push({ ...repo, status: 'ready', localPath, lastError: '' });
     } catch (error) {
       const message = maskCredential(error.message || '仓库拉取失败');
-      await reportRepoStatus(apiBase, repoId, {
-        status: 'failed',
-        localPath,
-        lastError: message
-      });
+
+      try {
+        logger.log(`[仓库同步] 上报状态: ${repo.name || repo.repoUrl} -> failed`);
+        await reportRepoStatus(apiBase, repoId, {
+          status: 'failed',
+          localPath,
+          lastError: message
+        });
+      } catch (reportError) {
+        logger.error(`[仓库同步] failed 状态上报失败: ${repo.name || repo.repoUrl} - ${maskCredential(reportError.message || '状态上报失败')}`);
+      }
 
       logger.error(`[仓库同步] 失败: ${repo.name || repo.repoUrl} - ${message}`);
       synced.push({ ...repo, status: 'failed', localPath, lastError: message });

@@ -11,6 +11,26 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatFetchError(error, method, url) {
+  const message = String(error?.message || 'fetch failed');
+  const cause = error?.cause;
+
+  if (!cause) {
+    return `${method} ${url} 失败: ${message}`;
+  }
+
+  const causeParts = [
+    cause.code,
+    cause.errno,
+    cause.syscall,
+    cause.address,
+    cause.port !== undefined ? String(cause.port) : ''
+  ].filter(Boolean);
+
+  const causeText = causeParts.length > 0 ? ` (${causeParts.join(' ')})` : '';
+  return `${method} ${url} 失败: ${message}${causeText}`;
+}
+
 async function uploadBuildPackage(apiBase, ipaPath) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
   const uploadUrl = `${normalizedApiBase}/api/upload`;
@@ -78,15 +98,22 @@ async function uploadBuildPackageWithRetry(apiBase, ipaPath, options = {}) {
 
 async function saveBuildArtifact(apiBase, payload) {
   const normalizedApiBase = trimTrailingSlash(apiBase);
-  const res = await fetch(`${normalizedApiBase}/api/build-artifacts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const requestUrl = `${normalizedApiBase}/api/build-artifacts`;
+
+  let res;
+  try {
+    res = await fetch(requestUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    throw new Error(formatFetchError(error, 'POST', requestUrl));
+  }
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`保存打包记录失败: ${res.status} ${text}`);
+    throw new Error(`POST ${requestUrl} 返回异常状态: ${res.status} ${text}`);
   }
 
   return res.json();
@@ -98,9 +125,17 @@ async function saveBuildArtifact(apiBase, payload) {
  * @returns {Promise<object|null>}
  */
 async function fetchConfig(apiBase) {
-  const res = await fetch(`${apiBase}/api/config/consume`);
+  const requestUrl = `${apiBase}/api/config/consume`;
+
+  let res;
+  try {
+    res = await fetch(requestUrl);
+  } catch (error) {
+    throw new Error(formatFetchError(error, 'GET', requestUrl));
+  }
+
   if (!res.ok) {
-    throw new Error(`查询配置失败: ${res.status}`);
+    throw new Error(`GET ${requestUrl} 返回异常状态: ${res.status}`);
   }
   const result = await res.json();
   return result.data || null;
@@ -202,13 +237,14 @@ async function uploadBuildLog(apiBase, roomId, message, level = 'info', done = f
   }
 
   try {
-    await fetch(`${apiBase}/api/build-logs`, {
+    const requestUrl = `${apiBase}/api/build-logs`;
+    await fetch(requestUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId, message, level, done, status, timestamp: new Date().toISOString() })
     });
   } catch (error) {
-    console.error(`[日志上传] 失败: ${error.message}`);
+    console.error(`[日志上传] 失败: ${formatFetchError(error, 'POST', `${apiBase}/api/build-logs`)}`);
   }
 }
 
